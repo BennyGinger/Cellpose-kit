@@ -1,5 +1,11 @@
+from pathlib import Path
+from typing import Any
+import logging
+
 from cellpose.models import MODEL_NAMES, normalize_default
 
+
+logger = logging.getLogger('cellpose_kit_v4')
 
 DEFAULT_MODEL = 'cpsam'
 
@@ -32,3 +38,86 @@ EVAL_SETS = {
     "compute_masks": True, # Whether or not to compute dynamics and return masks. Returns empty array if False. Defaults to True.
     "progress": None, # pyqt progress bar. Defaults to None.
     }
+
+def configure_model(cellpose_settings: dict[str, Any]) -> dict[str, Any]:
+    """
+    Configure the model settings based on user input. If missing or invalid, revert to defaults.
+    For Cellpose v4, handles model name validation and file path checking.
+    
+    Returns:
+        dict: Updated model settings dictionary
+    """
+    mod_sets = MOD_SETS.copy()
+    
+    # Update with user-provided settings
+    overwrites = {k: v for k, v in cellpose_settings.items() if k in mod_sets}
+    mod_sets.update(overwrites)
+
+    # Handle deprecated 'model_type' parameter (v4 uses 'pretrained_model')
+    if 'model_type' in cellpose_settings and cellpose_settings['model_type'] is not None:
+        logger.warning("⚠️ 'model_type' is deprecated in Cellpose v4. Use 'pretrained_model' instead.")
+        model_type = cellpose_settings['model_type']
+        
+        # Check if it's a valid model name or file path
+        if model_type in MODEL_NAMES or Path(model_type).is_file():
+            mod_sets['pretrained_model'] = model_type
+        else:
+            logger.warning(f"⚠️ Model type '{model_type}' is not valid, using default model '{DEFAULT_MODEL}'.")
+            mod_sets['pretrained_model'] = DEFAULT_MODEL
+
+    # Validate pretrained_model setting
+    pretrained_model = mod_sets['pretrained_model']
+    if pretrained_model:
+        # For v4, accept model names (like 'cpsam') or valid file paths
+        is_valid_model_name = pretrained_model in MODEL_NAMES
+        is_valid_file_path = Path(pretrained_model).is_file()
+        
+        if not (is_valid_model_name or is_valid_file_path):
+            logger.warning(f"⚠️ Pretrained model '{pretrained_model}' not found. Using default model '{DEFAULT_MODEL}'.")
+            mod_sets['pretrained_model'] = DEFAULT_MODEL
+    else:
+        # If no model specified, use default
+        mod_sets['pretrained_model'] = DEFAULT_MODEL
+        
+    return mod_sets
+
+def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel: bool = False) -> dict[str, Any]:
+    """
+    Configure the evaluation parameters based on user input. If missing or invalid, revert to defaults.
+    
+    Note: For Cellpose v4, nuclear channel handling is different from v3:
+    - v3 uses 'channels=[1,2]' parameter to specify cytoplasm and nucleus channels
+    - v4 expects 3-channel input where nuclear information is pre-incorporated
+    
+    Parameters:
+        cellpose_settings: User-provided settings
+        use_nuclear_channel: For v4, this parameter is informational only since
+                           nuclear information should be pre-composed in the 3-channel input
+    
+    Returns:
+        dict: Updated evaluation parameters dictionary
+    """
+    eval_params = EVAL_SETS.copy()
+
+    # Update with user-provided settings
+    overwrites = {k: v for k, v in cellpose_settings.items() if k in eval_params}
+    eval_params.update(overwrites)
+
+    # Warn about nuclear channel usage in v4
+    if use_nuclear_channel:
+        logger.info("ℹ️ Nuclear channel usage in Cellpose v4: Ensure your images have 3 channels with nuclear information pre-incorporated. The 'use_nuclear_channel' parameter doesn't modify v4 processing.")
+
+    # Warn if user tries to use deprecated 'channels' parameter
+    if 'channels' in cellpose_settings:
+        logger.warning("⚠️ 'channels' parameter is deprecated in Cellpose v4. Ensure your input images have 3 channels with nuclear information already incorporated.")
+
+    # Handle 3D segmentation configuration
+    if eval_params["do_3D"]:
+        eval_params['z_axis'] = 0
+        eval_params['anisotropy'] = 2.0 if eval_params['anisotropy'] is None else eval_params['anisotropy']
+
+    # Handle 3D stitching configuration
+    if eval_params["stitch_threshold"] > 0.0:
+        eval_params['do_3D'] = False
+        
+    return eval_params

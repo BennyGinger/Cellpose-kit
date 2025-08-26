@@ -1,5 +1,11 @@
+from pathlib import Path
+from typing import Any
+import logging
+
 from cellpose.models import MODEL_NAMES, normalize_default
 
+
+logger = logging.getLogger('cellpose_kit_v3')
 
 DEFAULT_MODEL = "cyto2"
 
@@ -41,3 +47,65 @@ EVAL_SETS = {
     "compute_masks": True, # Whether or not to compute dynamics and return masks. Returns empty array if False. Defaults to True.
     "progress": None, # pyqt progress bar. Defaults to None.
     }
+
+
+def configure_model(cellpose_settings: dict[str, Any]) -> dict[str, Any]:
+    """
+    Configure the model settings based on user input. If missing or invalid, revert to defaults. It uses the default values from cellpose.
+    Returns the updated model settings as a dictionary.
+    """
+    
+    mod_sets = MOD_SETS.copy()
+    
+    overwrites = {k: v for k, v in cellpose_settings.items() if k in mod_sets}
+    mod_sets.update(overwrites)
+
+    # Check if pretrained model is provided and is a valid file path
+    if mod_sets['pretrained_model']:
+        valid_path = Path(mod_sets['pretrained_model']).is_file()
+        if valid_path:
+            # If a valid custom model file is provided, ignore model_type
+            mod_sets['model_type'] = None
+        else:
+            logger.warning(f"⚠️ Pretrained model not found: {mod_sets['pretrained_model']}, reverting to default model.")
+            mod_sets['model_type'] = DEFAULT_MODEL
+            mod_sets['pretrained_model'] = None
+
+    # Check that model_type is not a 'pretrained_model' instead
+    if mod_sets['model_type'] is not None:
+        if Path(mod_sets['model_type']).is_file():
+            mod_sets['pretrained_model'] = mod_sets['model_type']
+            mod_sets['model_type'] = None
+    
+    # Check if model_type is valid
+    if mod_sets['model_type'] is not None:
+        if mod_sets['model_type'] not in MODEL_NAMES:
+            logger.warning(f"⚠️ Unknown model type: {mod_sets['model_type']}, available models are: {MODEL_NAMES}, reverting to default model.")
+            mod_sets['model_type'] = DEFAULT_MODEL
+
+    return mod_sets
+
+def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel: bool = False) -> dict[str, Any]:
+    """
+    Configure the evaluation parameters based on user input. If missing or invalid, revert to defaults.
+    
+    Returns the updated evaluation parameters as a dictionary.
+    """
+    eval_params = EVAL_SETS.copy()
+
+    overwrites = {k: v for k, v in cellpose_settings.items() if k in eval_params}
+    eval_params.update(overwrites)
+
+    if use_nuclear_channel:
+        eval_params['channels'] = [1,2]
+
+    # If user wants to do 3D segmentation
+    if eval_params["do_3D"]:
+        eval_params['z_axis'] = 0
+        eval_params['anisotropy'] = 2.0 if eval_params['anisotropy'] is None else eval_params['anisotropy']
+
+    if eval_params["stitch_threshold"] > 0.0:
+        eval_params['do_3D'] = False
+    return eval_params
+
+
