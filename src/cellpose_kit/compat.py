@@ -1,7 +1,9 @@
 import importlib.metadata
 import logging
-from packaging import version
 from typing import Optional
+
+from packaging import version
+
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +14,6 @@ MIN_VERSION = "3.0"
 def _get_cellpose_version_info() -> tuple[Optional[str], Optional[int]]:
     """
     Get the installed Cellpose version information.
-    
     Returns:
         tuple: (version_string, major_version) or (None, None) if not installed
     """
@@ -21,16 +22,13 @@ def _get_cellpose_version_info() -> tuple[Optional[str], Optional[int]]:
         version_string = importlib.metadata.version("cellpose")
     except importlib.metadata.PackageNotFoundError:
         try:
-            # Fallback: try importing cellpose and check __version__
             import cellpose
             version_string = getattr(cellpose, '__version__', None)
         except ImportError:
             logger.warning("Cellpose not found in current environment")
             return None, None
-    
     if version_string is None:
         return None, None
-    
     try:
         major_version = version.parse(version_string).major
         return version_string, major_version
