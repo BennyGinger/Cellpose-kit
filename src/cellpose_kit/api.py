@@ -1,14 +1,9 @@
 """Cellpose Kit - Clean API for Cellpose v3/v4"""
 import logging
-from typing import Any
+from typing import Any, Union, List
 from threading import Lock
-import os, contextlib
 
 from numpy.typing import NDArray
-with open(os.devnull, 'w') as devnull, contextlib.redirect_stdout(devnull):
-    # Suppress Cellpose Welcome message
-    from cellpose.models import CellposeModel
-    from cellpose.io import logger_setup
 
 from cellpose_kit.compat import get_cellpose_version
 
@@ -16,25 +11,15 @@ backend_name = get_cellpose_version()
 
 match backend_name:
     case "v3":
-        from cellpose_kit.backend.v3 import configure_model, configure_eval_params, EVAL_SETS, MOD_SETS
+        from cellpose_kit.backend.v3 import configure_eval_params, init_model
     case "v4":
-        from cellpose_kit.backend.v4 import configure_model, configure_eval_params, EVAL_SETS, MOD_SETS
+        from cellpose_kit.backend.v4 import configure_eval_params, init_model
     case _:
         raise ImportError(f"Unsupported backend: {backend_name}")
 
-
 logger = logging.getLogger('cellpose_kit')
 
-# Default settings combining model and evaluation parameters
-DEFAULT_SETTINGS = {**MOD_SETS, **EVAL_SETS}
-
-def _init_model(mod_sets: dict[str, Any]) -> CellposeModel:
-    """Initialize the Cellpose model with the given settings."""
-    logger_setup()
-    model = CellposeModel(**mod_sets)
-    return model
-
-def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, use_nuclear_channel: bool = False) -> dict[str, Any]:
+def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, use_nuclear_channel: bool = False, do_denoise: bool = False) -> dict[str, Any]:
     """
     Setup Cellpose model and evaluation parameters once for reuse.
     
@@ -44,13 +29,13 @@ def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, u
         use_nuclear_channel (bool): If True, configures for nuclear channel usage.
                                   - v3: Sets channels=[1,2] 
                                   - v4: Informational only (expects 3-channel input)
-        
+        do_denoise (bool): If True, applies denoising to the input images. Only valid in v3, will be ignored in v4.
+
     Returns:
         dict: Complete settings ready for run_cellpose, includes 'model' and 'eval_params'
     """
-    mod_sets = configure_model(cellpose_settings)
-    model = _init_model(mod_sets)
-    eval_params = configure_eval_params(cellpose_settings, use_nuclear_channel)
+    model = init_model(cellpose_settings, do_denoise)
+    eval_params = configure_eval_params(cellpose_settings, use_nuclear_channel, do_denoise)
     
     logger.info(f"Cellpose {backend_name} model initialized.")
     configured_settings = {
@@ -64,7 +49,7 @@ def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, u
     
     return configured_settings
 
-def run_cellpose(img: NDArray | list[NDArray], configured_settings: dict[str, Any]) -> tuple[NDArray | list[NDArray], list, NDArray | list[NDArray]]:
+def run_cellpose(img: Union[NDArray, List[NDArray]], configured_settings: dict[str, Any]) -> tuple[Union[NDArray, List[NDArray]], list, Union[NDArray, List[NDArray]]]:
     """
     Run Cellpose segmentation using pre-configured settings.
     
@@ -72,16 +57,24 @@ def run_cellpose(img: NDArray | list[NDArray], configured_settings: dict[str, An
         img: Input image(s) - NDArray or list of NDArrays
              - v3: Flexible channel input
              - v4: Must have 3 channels
-        configured_settings: Settings from setup_cellpose()
-        
+        configured_settings: Settings from setup_cellpose(), must contain 'model' and 'eval_params'
+
     Returns:
         tuple: (masks, flows, styles)
         - masks: NDArray (for single/batch) or list[NDArray] (for list input)
         - flows: list[NDArray] (for single/batch) or list[list[NDArray]] (for list input)
         - styles: NDArray (for single/batch) or list[NDArray] (for list input)
+        
+    Raises:
+        KeyError: If configured_settings is missing required keys
+        TypeError: If configured_settings is not from setup_cellpose()
     """
-    model: CellposeModel = configured_settings['model']
-    eval_params = configured_settings['eval_params']
+    try:
+        model = configured_settings['model']
+        eval_params = configured_settings['eval_params']
+    except KeyError as e:
+        raise KeyError(f"Invalid configured_settings: missing {e}. Use setup_cellpose() to create valid settings.") from e
+        
     lock = configured_settings.get('lock', None)
     
     if lock is not None:

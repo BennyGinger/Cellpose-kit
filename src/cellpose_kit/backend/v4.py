@@ -1,8 +1,12 @@
 from pathlib import Path
 from typing import Any
 import logging
+import os, contextlib
 
-from cellpose.models import MODEL_NAMES, normalize_default
+with open(os.devnull, 'w') as devnull, contextlib.redirect_stdout(devnull):
+    # Suppress Cellpose Welcome message
+    from cellpose.models import CellposeModel, MODEL_NAMES, normalize_default
+    from cellpose.io import logger_setup
 
 
 logger = logging.getLogger('cellpose_kit_v4')
@@ -11,7 +15,7 @@ DEFAULT_MODEL = 'cpsam'
 
 MOD_SETS = {
     "gpu": True, # Use GPU for processing, set to False for CPU
-    "pretrained_model": DEFAULT_MODEL, # Full path to pretrained cellpose model(s), if None or False, no model loaded.
+    "pretrained_model": None, # Full path to pretrained cellpose model(s), if None or False, no model loaded.
     "device": None, #Device used for model running / training (torch.device("cuda") or torch.device("cpu")), overrides gpu input, recommended if you want to use a specific GPU (e.g. torch.device("cuda:1")).
     "use_bfloat16": True, # Use 16bit float precision instead of 32bit for model weights. Default to 16bit (True).
 }
@@ -39,7 +43,9 @@ EVAL_SETS = {
     "progress": None, # pyqt progress bar. Defaults to None.
     }
 
-def configure_model(cellpose_settings: dict[str, Any]) -> dict[str, Any]:
+
+
+def _configure_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
     """
     Configure the model settings based on user input. If missing or invalid, revert to defaults.
     For Cellpose v4, handles model name validation and file path checking.
@@ -47,41 +53,53 @@ def configure_model(cellpose_settings: dict[str, Any]) -> dict[str, Any]:
     Returns:
         dict: Updated model settings dictionary
     """
+    if do_denoise:
+        logger.info("Denoise is unnecessary for cellpose v4. This parameter will be ignored.")
+
     mod_sets = MOD_SETS.copy()
     
     # Update with user-provided settings
     overwrites = {k: v for k, v in cellpose_settings.items() if k in mod_sets}
     mod_sets.update(overwrites)
 
-    # Handle deprecated 'model_type' parameter (v4 uses 'pretrained_model')
-    if 'model_type' in cellpose_settings and cellpose_settings['model_type'] is not None:
+    # Check if pretrained_model is provided first (highest priority)
+    if mod_sets['pretrained_model']:
+        # For v4, accept model names (like 'cpsam') or valid file paths
+        is_valid_model_name = mod_sets['pretrained_model'] in MODEL_NAMES
+        is_valid_file_path = Path(mod_sets['pretrained_model']).is_file()
+        
+        if not (is_valid_model_name or is_valid_file_path):
+            logger.warning(f"⚠️ Pretrained model '{mod_sets['pretrained_model']}' not found. Using default model '{DEFAULT_MODEL}'.")
+            mod_sets['pretrained_model'] = DEFAULT_MODEL
+
+    # Handle deprecated 'model_type' parameter (only if pretrained_model not provided)
+    elif 'model_type' in cellpose_settings and cellpose_settings['model_type'] is not None:
         logger.warning("⚠️ 'model_type' is deprecated in Cellpose v4. Use 'pretrained_model' instead.")
         model_type = cellpose_settings['model_type']
         
         # Check if it's a valid model name or file path
         if model_type in MODEL_NAMES or Path(model_type).is_file():
+            logger.info(f"Converting deprecated model_type to pretrained_model: {model_type}")
             mod_sets['pretrained_model'] = model_type
         else:
             logger.warning(f"⚠️ Model type '{model_type}' is not valid, using default model '{DEFAULT_MODEL}'.")
             mod_sets['pretrained_model'] = DEFAULT_MODEL
 
-    # Validate pretrained_model setting
-    pretrained_model = mod_sets['pretrained_model']
-    if pretrained_model:
-        # For v4, accept model names (like 'cpsam') or valid file paths
-        is_valid_model_name = pretrained_model in MODEL_NAMES
-        is_valid_file_path = Path(pretrained_model).is_file()
-        
-        if not (is_valid_model_name or is_valid_file_path):
-            logger.warning(f"⚠️ Pretrained model '{pretrained_model}' not found. Using default model '{DEFAULT_MODEL}'.")
-            mod_sets['pretrained_model'] = DEFAULT_MODEL
+    # If neither provided, use default
     else:
-        # If no model specified, use default
+        logger.info(f"No model specified, using default model '{DEFAULT_MODEL}'.")
         mod_sets['pretrained_model'] = DEFAULT_MODEL
         
     return mod_sets
 
-def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel: bool = False) -> dict[str, Any]:
+def init_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> CellposeModel:
+    """Initialize the Cellpose model with the given settings."""
+    mod_sets = _configure_model(cellpose_settings, do_denoise)
+
+    logger_setup()
+    return CellposeModel(**mod_sets)
+
+def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel: bool, do_denoise: bool) -> dict[str, Any]:
     """
     Configure the evaluation parameters based on user input. If missing or invalid, revert to defaults.
     
@@ -93,7 +111,8 @@ def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel
         cellpose_settings: User-provided settings
         use_nuclear_channel: For v4, this parameter is informational only since
                            nuclear information should be pre-composed in the 3-channel input
-    
+        do_denoise: Parameter not used in v4 (ignored)
+
     Returns:
         dict: Updated evaluation parameters dictionary
     """

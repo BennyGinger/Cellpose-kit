@@ -1,8 +1,13 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 import logging
+import os, contextlib
 
-from cellpose.models import MODEL_NAMES, normalize_default
+with open(os.devnull, 'w') as devnull, contextlib.redirect_stdout(devnull):
+    # Suppress Cellpose Welcome message
+    from cellpose.models import CellposeModel, MODEL_NAMES, normalize_default
+    from cellpose.denoise import CellposeDenoiseModel
+    from cellpose.io import logger_setup
 
 
 logger = logging.getLogger('cellpose_kit_v3')
@@ -19,6 +24,16 @@ MOD_SETS = {
     "mkldnn": True, # Use MKLDNN for CPU inference, faster but not always supported.
     "pretrained_model_ortho": None, # Path or model_name for pretrained cellpose model for ortho views in 3D.
     "backbone": "default", # Type of network ("default" is the standard res-unet, "transformer" for the segformer).
+}
+
+MOD_SETS_DENOISE = {
+    "gpu": True, # Use GPU for processing, set to False for CPU
+    "model_type": DEFAULT_MODEL, # Model type to use
+    "pretrained_model": False, # Path to pretrained cellpose model.
+    "restore_type": None, # Restore type for denoising model. Only possible choice are 'denoise_cyto2' or 'denoise_cyto3'.
+    "nchan": 2, # Number of channels to use as input to network, default is 2 (cyto + nuclei) or (nuclei + zeros).
+    "chan2_restore": False, # Whether to use another model for the second channel restoration.
+    "device": None, #Device used for model running / training (torch.device("cuda") or torch.device("cpu")), overrides gpu input, recommended if you want to use a specific GPU (e.g. torch.device("cuda:1")).
 }
 
 EVAL_SETS = {
@@ -49,43 +64,72 @@ EVAL_SETS = {
     }
 
 
-def configure_model(cellpose_settings: dict[str, Any]) -> dict[str, Any]:
+def _configure_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
     """
     Configure the model settings based on user input. If missing or invalid, revert to defaults. It uses the default values from cellpose.
-    Returns the updated model settings as a dictionary.
+    Args:
+        cellpose_settings (dict): Dictionary containing the settings for Cellpose.
+        do_denoise (bool): If True, applies denoising settings.
+    Returns:
+        dict: the updated model settings as a dictionary.
     """
-    
-    mod_sets = MOD_SETS.copy()
-    
+
+    mod_sets = MOD_SETS_DENOISE.copy() if do_denoise else MOD_SETS.copy()
+
     overwrites = {k: v for k, v in cellpose_settings.items() if k in mod_sets}
     mod_sets.update(overwrites)
 
-    # Check if pretrained model is provided and is a valid file path
+    # Check if pretrained model is provided and validate it
     if mod_sets['pretrained_model']:
-        valid_path = Path(mod_sets['pretrained_model']).is_file()
-        if valid_path:
-            # If a valid custom model file is provided, ignore model_type
+        if Path(mod_sets['pretrained_model']).is_file():
+            # Valid pretrained model, use it and ignore model_type
             mod_sets['model_type'] = None
         else:
-            logger.warning(f"⚠️ Pretrained model not found: {mod_sets['pretrained_model']}, reverting to default model.")
-            mod_sets['model_type'] = DEFAULT_MODEL
-            mod_sets['pretrained_model'] = None
+            # Invalid pretrained model, fall back to model_type (don't overwrite user's model_type!)
+            logger.warning(f"⚠️ Pretrained model not found: {mod_sets['pretrained_model']}, falling back to model_type.")
+            mod_sets['pretrained_model'] = False
 
-    # Check that model_type is not a 'pretrained_model' instead
+    # Handle 'model_type' parameter that might be a file path (convenience feature)
     if mod_sets['model_type'] is not None:
-        if Path(mod_sets['model_type']).is_file():
-            mod_sets['pretrained_model'] = mod_sets['model_type']
+        model_type = mod_sets['model_type']
+        if Path(model_type).is_file():
+            logger.info(f"Model type appears to be a file path, using as pretrained_model: {model_type}")
+            mod_sets['pretrained_model'] = model_type
             mod_sets['model_type'] = None
     
-    # Check if model_type is valid
+    # Check if model_type is valid (only if we have a model_type to validate)
     if mod_sets['model_type'] is not None:
         if mod_sets['model_type'] not in MODEL_NAMES:
             logger.warning(f"⚠️ Unknown model type: {mod_sets['model_type']}, available models are: {MODEL_NAMES}, reverting to default model.")
             mod_sets['model_type'] = DEFAULT_MODEL
 
+    if do_denoise and mod_sets['restore_type'] is None:
+        mod_sets['restore_type'] = 'denoise_cyto2' if mod_sets['model_type'] == 'cyto2' else 'denoise_cyto3'
+    
+    logger.debug(f"Configured model settings: {mod_sets}")
+    logger.info("Model parameters set.")
     return mod_sets
 
-def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel: bool = False) -> dict[str, Any]:
+def init_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> Union[CellposeModel, CellposeDenoiseModel]:
+    """Configure and initialize the Cellpose model with the given settings.
+    Args:
+        cellpose_settings (dict): The settings for the Cellpose model.
+        do_denoise (bool): Whether to apply denoising.
+    Returns:
+        CellposeModel | CellposeDenoiseModel: The initialized Cellpose model.
+    """
+    
+    mod_sets = _configure_model(cellpose_settings, do_denoise)
+
+    logger_setup()
+    if mod_sets.get('restore_type', None) is not None:
+        logger.debug(f"Restoring model from: {mod_sets['restore_type']}")
+        logger.info("Denoising model initialized.")
+        return CellposeDenoiseModel(**mod_sets)
+    logger.info("Cellpose model initialized.")
+    return CellposeModel(**mod_sets)
+
+def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel: bool, do_denoise: bool) -> dict[str, Any]:
     """
     Configure the evaluation parameters based on user input. If missing or invalid, revert to defaults.
     
@@ -106,6 +150,13 @@ def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel
 
     if eval_params["stitch_threshold"] > 0.0:
         eval_params['do_3D'] = False
+    
+    if not do_denoise:
+        return eval_params
+    
+    # Catch the channels bug from cellpose: default val is None, but denoise model requires a list
+    if 'channels' not in eval_params or eval_params['channels'] is None:
+        eval_params['channels'] = [0, 0]
     return eval_params
 
 
