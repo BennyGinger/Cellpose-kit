@@ -63,6 +63,29 @@ EVAL_SETS = {
     "progress": None, # pyqt progress bar. Defaults to None.
     }
 
+EVAL_SETS_DENOISE = {
+    "batch_size": 8, # number of 256x256 patches to run simultaneously on the GPU (smaller or bigger depending on GPU memory). Defaults to 64.
+    "channels": None, # list of channels, either of length 2 or of length number of images by 2. First element of list is the channel to segment (0=grayscale, 1=red, 2=green, 3=blue). Second element of list is the optional nuclear channel (0=none, 1=red, 2=green, 3=blue). Defaults to None.
+    "channel_axis": None, # channel axis in element of list x, or of np.ndarray x.
+    "z_axis": None, # z axis in element of list x, or of np.ndarray x. if None, z dimension is automatically determined. Defaults to None.
+    "normalize": normalize_default, # if True, normalize data so 0.0=1st percentile and 1.0=99th percentile of image intensities in each channel; can also pass dictionary of parameters (all keys are optional, default values shown in normalize_default)
+    "rescale": None, # resize factor for each image, if None, set to 1.0; (only used if diameter is None). Defaults to None.
+    "diameter": None, # diameters are used to rescale the image to 30 pix cell diameter.
+    "tile_overlap": 0.1, # fraction of overlap of tiles when computing flows. Defaults to 0.1.
+    "augment": False, # tiles image with overlapping tiles and flips overlapped regions to augment. Defaults to False.
+    "resample": True, # run dynamics at original image size (will be slower but create more accurate boundaries).
+    "invert": False, # invert image pixel intensity before running network. Defaults to False.
+    "flow_threshold": 0.4, # flow error threshold (all cells with errors below threshold are kept) (not used for 3D). Defaults to 0.4.
+    "cellprob_threshold": 0.0, # all pixels with value above threshold kept for masks, decrease to find more and larger masks. Defaults to 0.0.
+    "do_3D": False, # set to True to run 3D segmentation on 3D/4D image input. Defaults to False.
+    "anisotropy": None, # for 3D segmentation, optional rescaling factor (e.g. set to 2.0 if Z is sampled half as dense as X or Y). Defaults to None.
+    "stitch_threshold": 0, # if stitch_threshold>0.0 and not do_3D, masks are stitched in 3D to return volume segmentation. Defaults to 0.0.
+    "min_size": 15, # all ROIs below this size, in pixels, will be discarded. Defaults to 15.
+    "niter": None, # Number of iterations for dynamics computation. if None, it is set proportional to the diameter. Defaults to None.
+    "interp": True, # interpolate during 2D dynamics (not available in 3D) . Defaults to True.
+    "bsize": 256, # block size for tiles, recommended to keep at 224, like in training. Defaults to 224.
+    "flow3D_smooth": 0, # if do_3D and flow3D_smooth>0, smooth flows with gaussian filter of this stddev. Defaults to 0.
+    }
 
 def _configure_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
     """
@@ -135,7 +158,7 @@ def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel
     
     Returns the updated evaluation parameters as a dictionary.
     """
-    eval_params = EVAL_SETS.copy()
+    eval_params = EVAL_SETS_DENOISE if do_denoise else EVAL_SETS.copy()
 
     overwrites = {k: v for k, v in cellpose_settings.items() if k in eval_params}
     eval_params.update(overwrites)
@@ -157,13 +180,6 @@ def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel
     # Catch the channels bug from cellpose: default val is None, but denoise model requires a list
     if 'channels' not in eval_params or eval_params['channels'] is None:
         eval_params['channels'] = [0, 0]
-    
-    # Remove parameters that CellposeDenoiseModel.eval() doesn't accept
-    denoise_incompatible_params = ['max_size_fraction']
-    for param in denoise_incompatible_params:
-        if param in eval_params:
-            logger.debug(f"Removing incompatible parameter for denoise model: {param}")
-            eval_params.pop(param)
     
     return eval_params
 
