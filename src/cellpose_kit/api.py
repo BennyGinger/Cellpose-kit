@@ -6,6 +6,7 @@ from threading import Lock
 from numpy.typing import NDArray
 
 from cellpose_kit.compat import get_cellpose_version
+from cellpose_kit.utils import validate_image_channels
 
 backend_name = get_cellpose_version()
 
@@ -55,7 +56,7 @@ def run_cellpose(img: Union[NDArray, List[NDArray]], configured_settings: dict[s
     
     Parameters:
         img: Input image(s) - NDArray or list of NDArrays
-             - v3: Flexible channel input
+             - v3: Flexible channel input, but must have >= 2 channels if nuclear mode enabled
              - v4: Must have 3 channels
         configured_settings: Settings from setup_cellpose(), must contain 'model' and 'eval_params'
 
@@ -68,12 +69,16 @@ def run_cellpose(img: Union[NDArray, List[NDArray]], configured_settings: dict[s
     Raises:
         KeyError: If configured_settings is missing required keys
         TypeError: If configured_settings is not from setup_cellpose()
+        ValueError: If image channels don't match nuclear channel requirements
     """
     try:
         model = configured_settings['model']
         eval_params = configured_settings['eval_params']
     except KeyError as e:
         raise KeyError(f"Invalid configured_settings: missing {e}. Use setup_cellpose() to create valid settings.") from e
+    
+    # Validate image channels against configuration
+    validate_image_channels(img, eval_params, backend_name)
         
     lock = configured_settings.get('lock', None)
     
