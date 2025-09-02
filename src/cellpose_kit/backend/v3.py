@@ -157,6 +157,14 @@ def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel
     # Catch the channels bug from cellpose: default val is None, but denoise model requires a list
     if 'channels' not in eval_params or eval_params['channels'] is None:
         eval_params['channels'] = [0, 0]
+    
+    # Remove parameters that CellposeDenoiseModel.eval() doesn't accept
+    denoise_incompatible_params = ['max_size_fraction']
+    for param in denoise_incompatible_params:
+        if param in eval_params:
+            logger.debug(f"Removing incompatible parameter for denoise model: {param}")
+            eval_params.pop(param)
+    
     return eval_params
 
 
