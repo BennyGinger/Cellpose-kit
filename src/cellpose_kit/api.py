@@ -20,7 +20,13 @@ match backend_name:
 
 logger = logging.getLogger('cellpose_kit')
 
-def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, use_nuclear_channel: bool = False, do_denoise: bool = False) -> dict[str, Any]:
+def setup_cellpose(
+    cellpose_settings: dict[str, Any],
+    threading: bool = False,
+    use_nuclear_channel: bool = False,
+    do_denoise: bool = False,
+    model: Any = None
+) -> dict[str, Any]:
     """
     Setup Cellpose model and evaluation parameters once for reuse.
     
@@ -35,19 +41,27 @@ def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, u
     Returns:
         dict: Complete settings ready for run_cellpose, includes 'model' and 'eval_params'
     """
-    model = init_model(cellpose_settings, do_denoise)
+    # If an existing model is provided, use it; otherwise, create a new one
+    if model is not None:
+        model_instance = model
+    else:
+        model_instance = init_model(cellpose_settings, do_denoise)
     eval_params = configure_eval_params(cellpose_settings, use_nuclear_channel, do_denoise)
-    
-    logger.info(f"Cellpose {backend_name} model initialized.")
+
+    if model is not None:
+        logger.info(f"Cellpose {backend_name} model reused from cache.")
+    else:
+        logger.info(f"Cellpose {backend_name} model initialized.")
+
     configured_settings = {
-        'model': model,
+        'model': model_instance,
         'eval_params': eval_params
     }
-    
+
     if threading:
         logger.info("Threading enabled: Adding lock for thread-safe model inference")
         configured_settings['lock'] = Lock()
-    
+
     return configured_settings
 
 def run_cellpose(img: Union[NDArray, List[NDArray]], configured_settings: dict[str, Any]) -> tuple[Union[NDArray, List[NDArray]], list, Union[NDArray, List[NDArray]]]:
