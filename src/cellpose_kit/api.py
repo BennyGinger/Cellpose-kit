@@ -37,6 +37,7 @@ def setup_cellpose(
                                   - v3: Sets channels=[1,2] 
                                   - v4: Informational only (expects 3-channel input)
         do_denoise (bool): If True, applies denoising to the input images. Only valid in v3, will be ignored in v4.
+        model (Any): Optional pre-initialized Cellpose model instance to use instead of creating a new one. Default is None.
 
     Returns:
         dict: Complete settings ready for run_cellpose, includes 'model' and 'eval_params'
