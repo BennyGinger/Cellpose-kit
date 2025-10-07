@@ -82,3 +82,4 @@ def get_cellpose_version() -> str:
     
     return f"v{major_version}"
 
+cp_version = get_cellpose_version()

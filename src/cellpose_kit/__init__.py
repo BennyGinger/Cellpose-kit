@@ -10,6 +10,7 @@ with open(os.devnull, 'w') as devnull, contextlib.redirect_stdout(devnull):
 		)
 
 from .api import setup_cellpose, run_cellpose, MODEL_NAMES
-from .compat import get_cellpose_version  # <-- Add this line
+from .compat import cp_version  # <-- Add this line
 
-__all__ = ["setup_cellpose", "run_cellpose", "MODEL_NAMES", "get_cellpose_version"]
+
+__all__ = ["setup_cellpose", "run_cellpose", "MODEL_NAMES", "cp_version"]
