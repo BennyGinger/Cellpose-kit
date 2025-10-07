@@ -12,9 +12,9 @@ backend_name = get_cellpose_version()
 
 match backend_name:
     case "v3":
-        from cellpose_kit.backend.v3 import configure_eval_params, init_model
+        from cellpose_kit.backend.v3 import configure_eval_params, init_model, MODEL_NAMES
     case "v4":
-        from cellpose_kit.backend.v4 import configure_eval_params, init_model
+        from cellpose_kit.backend.v4 import configure_eval_params, init_model, MODEL_NAMES
     case _:
         raise ImportError(f"Unsupported backend: {backend_name}")
 

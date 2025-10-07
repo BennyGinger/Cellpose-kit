@@ -9,6 +9,7 @@ with open(os.devnull, 'w') as devnull, contextlib.redirect_stdout(devnull):
 			"Cellpose is not installed. Please install cellpose>=3.0 to use cellpose_kit."
 		)
 
-from .api import setup_cellpose, run_cellpose
+from .api import setup_cellpose, run_cellpose, MODEL_NAMES
+from .compat import get_cellpose_version  # <-- Add this line
 
-__all__ = ["setup_cellpose", "run_cellpose"]
+__all__ = ["setup_cellpose", "run_cellpose", "MODEL_NAMES", "get_cellpose_version"]
