@@ -1,11 +1,15 @@
+from __future__ import annotations
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 import logging
 import os, contextlib
 
+from cellpose_kit.backend.protocol import Backend
+
 with open(os.devnull, 'w') as devnull, contextlib.redirect_stdout(devnull):
     # Suppress Cellpose Welcome message
-    from cellpose.models import CellposeModel, MODEL_NAMES, normalize_default
+    from cellpose.models import CellposeModel, normalize_default
     from cellpose.io import logger_setup
 
 
@@ -43,100 +47,83 @@ EVAL_SETS = {
     "progress": None, # pyqt progress bar. Defaults to None.
     }
 
+@dataclass
+class BackendV4(Backend):
 
-
-def _configure_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
-    """
-    Configure the model settings based on user input. If missing or invalid, revert to defaults.
-    For Cellpose v4, handles model name validation and file path checking.
-    
-    Returns:
-        dict: Updated model settings dictionary
-    """
-    if do_denoise:
-        logger.info("Denoise is unnecessary for cellpose v4. This parameter will be ignored.")
-
-    mod_sets = MOD_SETS.copy()
-    
-    # Update with user-provided settings
-    overwrites = {k: v for k, v in cellpose_settings.items() if k in mod_sets}
-    mod_sets.update(overwrites)
-
-    # Check if pretrained_model is provided first (highest priority)
-    if mod_sets['pretrained_model']:
-        # For v4, accept model names (like 'cpsam') or valid file paths
-        is_valid_model_name = mod_sets['pretrained_model'] in MODEL_NAMES
-        is_valid_file_path = Path(mod_sets['pretrained_model']).is_file()
+    def _configure_model(self, user_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
         
-        if not (is_valid_model_name or is_valid_file_path):
-            logger.warning(f"⚠️ Pretrained model '{mod_sets['pretrained_model']}' not found. Using default model '{DEFAULT_MODEL}'.")
-            mod_sets['pretrained_model'] = DEFAULT_MODEL
+        if do_denoise:
+            logger.info("Denoise is unnecessary for cellpose v4. This parameter will be ignored.")
 
-    # Handle deprecated 'model_type' parameter (only if pretrained_model not provided)
-    elif 'model_type' in cellpose_settings and cellpose_settings['model_type'] is not None:
-        logger.warning("⚠️ 'model_type' is deprecated in Cellpose v4. Use 'pretrained_model' instead.")
-        model_type = cellpose_settings['model_type']
+        mod_sets = MOD_SETS.copy()
         
-        # Check if it's a valid model name or file path
-        if model_type in MODEL_NAMES or Path(model_type).is_file():
-            logger.info(f"Converting deprecated model_type to pretrained_model: {model_type}")
-            mod_sets['pretrained_model'] = model_type
+        # Update with user-provided settings
+        overwrites = {k: v for k, v in user_settings.items() if k in mod_sets}
+        mod_sets.update(overwrites)
+
+        # Check if pretrained_model is provided first (highest priority)
+        if mod_sets['pretrained_model']:
+            # For v4, accept model names (like 'cpsam') or valid file paths
+            is_valid_model_name = mod_sets['pretrained_model'] in self.model_names
+            is_valid_file_path = Path(mod_sets['pretrained_model']).is_file()
+            
+            if not (is_valid_model_name or is_valid_file_path):
+                logger.warning(f"⚠️ Pretrained model '{mod_sets['pretrained_model']}' not found. Using default model '{DEFAULT_MODEL}'.")
+                mod_sets['pretrained_model'] = DEFAULT_MODEL
+
+        # Handle deprecated 'model_type' parameter (only if pretrained_model not provided)
+        elif 'model_type' in user_settings and user_settings['model_type'] is not None:
+            logger.warning("⚠️ 'model_type' is deprecated in Cellpose v4. Use 'pretrained_model' instead.")
+            model_type = user_settings['model_type']
+            
+            # Check if it's a valid model name or file path
+            if model_type in self.model_names or Path(model_type).is_file():
+                logger.info(f"Converting deprecated model_type to pretrained_model: {model_type}")
+                mod_sets['pretrained_model'] = model_type
+            else:
+                logger.warning(f"⚠️ Model type '{model_type}' is not valid, using default model '{DEFAULT_MODEL}'.")
+                mod_sets['pretrained_model'] = DEFAULT_MODEL
+
+        # If neither provided, use default
         else:
-            logger.warning(f"⚠️ Model type '{model_type}' is not valid, using default model '{DEFAULT_MODEL}'.")
+            logger.info(f"No model specified, using default model '{DEFAULT_MODEL}'.")
             mod_sets['pretrained_model'] = DEFAULT_MODEL
+            
+        return mod_sets
 
-    # If neither provided, use default
-    else:
-        logger.info(f"No model specified, using default model '{DEFAULT_MODEL}'.")
-        mod_sets['pretrained_model'] = DEFAULT_MODEL
+    def init_model(self, user_settings: dict[str, Any], do_denoise: bool) -> CellposeModel:
         
-    return mod_sets
+        mod_sets = self._configure_model(user_settings, do_denoise)
 
-def init_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> CellposeModel:
-    """Initialize the Cellpose model with the given settings."""
-    mod_sets = _configure_model(cellpose_settings, do_denoise)
+        logger_setup()
+        return CellposeModel(**mod_sets)
 
-    logger_setup()
-    return CellposeModel(**mod_sets)
-
-def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel: bool, do_denoise: bool) -> dict[str, Any]:
-    """
-    Configure the evaluation parameters based on user input. If missing or invalid, revert to defaults.
-    
-    Note: For Cellpose v4, nuclear channel handling is different from v3:
-    - v3 uses 'channels=[1,2]' parameter to specify cytoplasm and nucleus channels
-    - v4 expects 3-channel input where nuclear information is pre-incorporated
-    
-    Parameters:
-        cellpose_settings: User-provided settings
-        use_nuclear_channel: For v4, this parameter is informational only since
-                           nuclear information should be pre-composed in the 3-channel input
-        do_denoise: Parameter not used in v4 (ignored)
-
-    Returns:
-        dict: Updated evaluation parameters dictionary
-    """
-    eval_params = EVAL_SETS.copy()
-
-    # Update with user-provided settings
-    overwrites = {k: v for k, v in cellpose_settings.items() if k in eval_params}
-    eval_params.update(overwrites)
-
-    # Warn about nuclear channel usage in v4
-    if use_nuclear_channel:
-        logger.info("ℹ️ Nuclear channel usage in Cellpose v4: Ensure your images have 3 channels with nuclear information pre-incorporated. The 'use_nuclear_channel' parameter doesn't modify v4 processing.")
-
-    # Warn if user tries to use deprecated 'channels' parameter
-    if 'channels' in cellpose_settings:
-        logger.warning("⚠️ 'channels' parameter is deprecated in Cellpose v4. Ensure your input images have 3 channels with nuclear information already incorporated.")
-
-    # Handle 3D segmentation configuration
-    if eval_params["do_3D"]:
-        eval_params['z_axis'] = 0
-        eval_params['anisotropy'] = 2.0 if eval_params['anisotropy'] is None else eval_params['anisotropy']
-
-    # Handle 3D stitching configuration
-    if eval_params["stitch_threshold"] > 0.0:
-        eval_params['do_3D'] = False
+    def configure_eval_params(self, user_settings: dict[str, Any], use_nuclear_channel: bool, do_denoise: bool = False) -> dict[str, Any]:
         
-    return eval_params
+        if do_denoise:
+            logger.warning("⚠️ Denoise settings are not applicable for Cellpose v4 and will be ignored if provided.")
+        
+        eval_params = EVAL_SETS.copy()
+
+        # Update with user-provided settings
+        overwrites = {k: v for k, v in user_settings.items() if k in eval_params}
+        eval_params.update(overwrites)
+
+        # Warn about nuclear channel usage in v4
+        if use_nuclear_channel:
+            logger.info("ℹ️ Nuclear channel usage in Cellpose v4: Ensure your images have 3 channels with nuclear information pre-incorporated. The 'use_nuclear_channel' parameter doesn't modify v4 processing.")
+
+        # Warn if user tries to use deprecated 'channels' parameter
+        if 'channels' in user_settings:
+            logger.warning("⚠️ 'channels' parameter is deprecated in Cellpose v4. Ensure your input images have 3 channels with nuclear information already incorporated.")
+
+        # Handle 3D segmentation configuration
+        if eval_params["do_3D"]:
+            eval_params['z_axis'] = 0
+            eval_params['anisotropy'] = 2.0 if eval_params['anisotropy'] is None else eval_params['anisotropy']
+
+        # Handle 3D stitching configuration
+        if eval_params["stitch_threshold"] > 0.0:
+            eval_params['do_3D'] = False
+            
+        return eval_params

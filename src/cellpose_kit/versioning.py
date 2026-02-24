@@ -18,15 +18,10 @@ def _get_cellpose_version_info() -> tuple[Optional[str], Optional[int]]:
         tuple: (version_string, major_version) or (None, None) if not installed
     """
     try:
-        # Try using importlib.metadata (Python 3.8+)
         version_string = importlib.metadata.version("cellpose")
     except importlib.metadata.PackageNotFoundError:
-        try:
-            import cellpose
-            version_string = getattr(cellpose, '__version__', None)
-        except ImportError:
-            logger.warning("Cellpose not found in current environment")
-            return None, None
+        raise ModuleNotFoundError ("cellpose is not installed or couldn't be found")
+        
     if version_string is None:
         return None, None
     try:
@@ -82,4 +77,3 @@ def get_cellpose_version() -> str:
     
     return f"v{major_version}"
 
-cp_version = get_cellpose_version()

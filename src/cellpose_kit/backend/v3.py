@@ -1,11 +1,15 @@
+from __future__ import annotations
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Union
 import logging
 import os, contextlib
 
+from cellpose_kit.backend.protocol import Backend
+
 with open(os.devnull, 'w') as devnull, contextlib.redirect_stdout(devnull):
     # Suppress Cellpose Welcome message
-    from cellpose.models import CellposeModel, MODEL_NAMES, normalize_default
+    from cellpose.models import CellposeModel, normalize_default
     from cellpose.denoise import CellposeDenoiseModel
     from cellpose.io import logger_setup
 
@@ -87,100 +91,85 @@ EVAL_SETS_DENOISE = {
     "flow3D_smooth": 0, # if do_3D and flow3D_smooth>0, smooth flows with gaussian filter of this stddev. Defaults to 0.
     }
 
-def _configure_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
-    """
-    Configure the model settings based on user input. If missing or invalid, revert to defaults. It uses the default values from cellpose.
-    Args:
-        cellpose_settings (dict): Dictionary containing the settings for Cellpose.
-        do_denoise (bool): If True, applies denoising settings.
-    Returns:
-        dict: the updated model settings as a dictionary.
-    """
 
-    mod_sets = MOD_SETS_DENOISE.copy() if do_denoise else MOD_SETS.copy()
+@dataclass
+class BackendV3(Backend):
 
-    overwrites = {k: v for k, v in cellpose_settings.items() if k in mod_sets}
-    mod_sets.update(overwrites)
+    def _configure_model(self, user_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
+        
+        mod_sets = MOD_SETS_DENOISE.copy() if do_denoise else MOD_SETS.copy()
 
-    # Check if pretrained model is provided and validate it
-    if mod_sets['pretrained_model']:
-        if Path(mod_sets['pretrained_model']).is_file():
-            # Valid pretrained model, use it and ignore model_type
-            mod_sets['model_type'] = None
-        else:
-            # Invalid pretrained model, fall back to model_type (don't overwrite user's model_type!)
-            logger.warning(f"⚠️ Pretrained model not found: {mod_sets['pretrained_model']}, falling back to model_type.")
-            mod_sets['pretrained_model'] = False
+        overwrites = {k: v for k, v in user_settings.items() if k in mod_sets}
+        mod_sets.update(overwrites)
 
-    # Handle 'model_type' parameter that might be a file path (convenience feature)
-    if mod_sets['model_type'] is not None:
-        model_type = mod_sets['model_type']
-        if Path(model_type).is_file():
-            logger.info(f"Model type appears to be a file path, using as pretrained_model: {model_type}")
-            mod_sets['pretrained_model'] = model_type
-            mod_sets['model_type'] = None
+        # Check if pretrained model is provided and validate it
+        if mod_sets['pretrained_model']:
+            if Path(mod_sets['pretrained_model']).is_file():
+                # Valid pretrained model, use it and ignore model_type
+                mod_sets['model_type'] = None
+            else:
+                # Invalid pretrained model, fall back to model_type (don't overwrite user's model_type!)
+                logger.warning(f"⚠️ Pretrained model not found: {mod_sets['pretrained_model']}, falling back to model_type.")
+                mod_sets['pretrained_model'] = False
+
+        # Handle 'model_type' parameter that might be a file path (convenience feature)
+        if mod_sets['model_type'] is not None:
+            model_type = mod_sets['model_type']
+            if Path(model_type).is_file():
+                logger.info(f"Model type appears to be a file path, using as pretrained_model: {model_type}")
+                mod_sets['pretrained_model'] = model_type
+                mod_sets['model_type'] = None
+        
+        # Check if model_type is valid (only if we have a model_type to validate)
+        if mod_sets['model_type'] is not None:
+            if mod_sets['model_type'] not in self.model_names:
+                logger.warning(f"⚠️ Unknown model type: {mod_sets['model_type']}, available models are: {self.model_names}, reverting to default model.")
+                mod_sets['model_type'] = DEFAULT_MODEL
+
+        if do_denoise and mod_sets['restore_type'] is None:
+            mod_sets['restore_type'] = 'denoise_cyto2' if mod_sets['model_type'] == 'cyto2' else 'denoise_cyto3'
+        
+        logger.debug(f"Configured model settings: {mod_sets}")
+        logger.info("Model parameters set.")
+        return mod_sets
+
+    def init_model(self, user_settings: dict[str, Any], do_denoise: bool) -> Union[CellposeModel, CellposeDenoiseModel]:
+        
+        mod_sets = self._configure_model(user_settings, do_denoise)
+
+        logger_setup()
+        if mod_sets.get('restore_type', None) is not None:
+            logger.debug(f"Restoring model from: {mod_sets['restore_type']}")
+            logger.info("Denoising model initialized.")
+            return CellposeDenoiseModel(**mod_sets)
+        logger.info("Cellpose model initialized.")
+        return CellposeModel(**mod_sets)
+
+    def configure_eval_params(self, user_settings: dict[str, Any], use_nuclear_channel: bool, do_denoise: bool) -> dict[str, Any]:
+        
+        eval_params = EVAL_SETS_DENOISE if do_denoise else EVAL_SETS.copy()
+
+        overwrites = {k: v for k, v in user_settings.items() if k in eval_params}
+        eval_params.update(overwrites)
+
+        if use_nuclear_channel:
+            eval_params['channels'] = [1,2]
+
+        # If user wants to do 3D segmentation
+        if eval_params["do_3D"]:
+            eval_params['z_axis'] = 0
+            eval_params['anisotropy'] = 2.0 if eval_params['anisotropy'] is None else eval_params['anisotropy']
+
+        if eval_params["stitch_threshold"] > 0.0:
+            eval_params['do_3D'] = False
+        
+        if not do_denoise:
+            return eval_params
     
-    # Check if model_type is valid (only if we have a model_type to validate)
-    if mod_sets['model_type'] is not None:
-        if mod_sets['model_type'] not in MODEL_NAMES:
-            logger.warning(f"⚠️ Unknown model type: {mod_sets['model_type']}, available models are: {MODEL_NAMES}, reverting to default model.")
-            mod_sets['model_type'] = DEFAULT_MODEL
-
-    if do_denoise and mod_sets['restore_type'] is None:
-        mod_sets['restore_type'] = 'denoise_cyto2' if mod_sets['model_type'] == 'cyto2' else 'denoise_cyto3'
-    
-    logger.debug(f"Configured model settings: {mod_sets}")
-    logger.info("Model parameters set.")
-    return mod_sets
-
-def init_model(cellpose_settings: dict[str, Any], do_denoise: bool) -> Union[CellposeModel, CellposeDenoiseModel]:
-    """Configure and initialize the Cellpose model with the given settings.
-    Args:
-        cellpose_settings (dict): The settings for the Cellpose model.
-        do_denoise (bool): Whether to apply denoising.
-    Returns:
-        CellposeModel | CellposeDenoiseModel: The initialized Cellpose model.
-    """
-    
-    mod_sets = _configure_model(cellpose_settings, do_denoise)
-
-    logger_setup()
-    if mod_sets.get('restore_type', None) is not None:
-        logger.debug(f"Restoring model from: {mod_sets['restore_type']}")
-        logger.info("Denoising model initialized.")
-        return CellposeDenoiseModel(**mod_sets)
-    logger.info("Cellpose model initialized.")
-    return CellposeModel(**mod_sets)
-
-def configure_eval_params(cellpose_settings: dict[str, Any], use_nuclear_channel: bool, do_denoise: bool) -> dict[str, Any]:
-    """
-    Configure the evaluation parameters based on user input. If missing or invalid, revert to defaults.
-    
-    Returns the updated evaluation parameters as a dictionary.
-    """
-    eval_params = EVAL_SETS_DENOISE if do_denoise else EVAL_SETS.copy()
-
-    overwrites = {k: v for k, v in cellpose_settings.items() if k in eval_params}
-    eval_params.update(overwrites)
-
-    if use_nuclear_channel:
-        eval_params['channels'] = [1,2]
-
-    # If user wants to do 3D segmentation
-    if eval_params["do_3D"]:
-        eval_params['z_axis'] = 0
-        eval_params['anisotropy'] = 2.0 if eval_params['anisotropy'] is None else eval_params['anisotropy']
-
-    if eval_params["stitch_threshold"] > 0.0:
-        eval_params['do_3D'] = False
-    
-    if not do_denoise:
+        # Catch the channels bug from cellpose: default val is None, but denoise model requires a list
+        if 'channels' not in eval_params or eval_params['channels'] is None:
+            eval_params['channels'] = [0, 0]
+        
         return eval_params
-    
-    # Catch the channels bug from cellpose: default val is None, but denoise model requires a list
-    if 'channels' not in eval_params or eval_params['channels'] is None:
-        eval_params['channels'] = [0, 0]
-    
-    return eval_params
 
 

@@ -1,13 +1,13 @@
-"""Utility functions for Cellpose Kit"""
 import logging
-from typing import Any, Union, List
-import numpy as np
+from typing import Any
+
 from numpy.typing import NDArray
+
 
 logger = logging.getLogger('cellpose_kit.utils')
 
 
-def validate_image_channels(img: Union[NDArray, List[NDArray]], eval_params: dict[str, Any], backend_name: str) -> None:
+def validate_image_channels(img: NDArray | list[NDArray], eval_params: dict[str, Any], backend_name: str | None) -> None:
     """
     Validate that input images have sufficient channels for the requested configuration.
     

@@ -1,32 +1,25 @@
-"""Cellpose Kit - Clean API for Cellpose v3/v4"""
+from __future__ import annotations
 import logging
-from typing import Any, Union, List
+from typing import Any, TYPE_CHECKING, TypeVar
 from threading import Lock
 
 from numpy.typing import NDArray
+import numpy as np
 
-from cellpose_kit.compat import get_cellpose_version
-from cellpose_kit.utils import validate_image_channels
+from cellpose_kit.backend.runtime import ModelContext
+from cellpose_kit.backend.factory import load_backend
+from cellpose_kit.backend.utils import validate_image_channels
 
-backend_name = get_cellpose_version()
+if TYPE_CHECKING:
+    from cellpose.models import CellposeModel
+    from cellpose.denoise import CellposeDenoiseModel
 
-match backend_name:
-    case "v3":
-        from cellpose_kit.backend.v3 import configure_eval_params, init_model, MODEL_NAMES
-    case "v4":
-        from cellpose_kit.backend.v4 import configure_eval_params, init_model, MODEL_NAMES
-    case _:
-        raise ImportError(f"Unsupported backend: {backend_name}")
+T = TypeVar('T', bound=np.generic)
 
 logger = logging.getLogger('cellpose_kit')
 
-def setup_cellpose(
-    cellpose_settings: dict[str, Any],
-    threading: bool = False,
-    use_nuclear_channel: bool = False,
-    do_denoise: bool = False,
-    model: Any = None
-) -> dict[str, Any]:
+
+def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, use_nuclear_channel: bool = False, do_denoise: bool = False, model: CellposeModel | CellposeDenoiseModel | None = None) -> ModelContext:
     """
     Setup Cellpose model and evaluation parameters once for reuse.
     
@@ -42,30 +35,32 @@ def setup_cellpose(
     Returns:
         dict: Complete settings ready for run_cellpose, includes 'model' and 'eval_params'
     """
+    backend, backend_name = load_backend()
+    
     # If an existing model is provided, use it; otherwise, create a new one
     if model is not None:
         model_instance = model
     else:
-        model_instance = init_model(cellpose_settings, do_denoise)
-    eval_params = configure_eval_params(cellpose_settings, use_nuclear_channel, do_denoise)
+        model_instance = backend.init_model(cellpose_settings, do_denoise)
+    eval_params = backend.configure_eval_params(cellpose_settings, use_nuclear_channel, do_denoise)
 
     if model is not None:
         logger.info(f"Cellpose {backend_name} model reused from cache.")
     else:
         logger.info(f"Cellpose {backend_name} model initialized.")
 
-    configured_settings = {
-        'model': model_instance,
-        'eval_params': eval_params
-    }
+    model_context = ModelContext(model=model_instance, 
+                                 eval_params=eval_params,
+                                 model_names=backend.model_names, 
+                                 backend_name=backend_name)
 
     if threading:
         logger.info("Threading enabled: Adding lock for thread-safe model inference")
-        configured_settings['lock'] = Lock()
+        model_context.lock = Lock()
 
-    return configured_settings
+    return model_context
 
-def run_cellpose(img: Union[NDArray, List[NDArray]], configured_settings: dict[str, Any]) -> tuple[Union[NDArray, List[NDArray]], list, Union[NDArray, List[NDArray]]]:
+def run_cellpose(img: NDArray[T] | list[NDArray[T]], model_context: ModelContext) -> tuple[NDArray[T] | list[NDArray[T]], list[NDArray[T] | list[NDArray[T]]], NDArray[T] | list[NDArray[T]]]:
     """
     Run Cellpose segmentation using pre-configured settings.
     
@@ -80,71 +75,24 @@ def run_cellpose(img: Union[NDArray, List[NDArray]], configured_settings: dict[s
         - masks: NDArray (for single/batch) or list[NDArray] (for list input)
         - flows: list[NDArray] (for single/batch) or list[list[NDArray]] (for list input)
         - styles: NDArray (for single/batch) or list[NDArray] (for list input)
-        
-    Raises:
-        KeyError: If configured_settings is missing required keys
-        TypeError: If configured_settings is not from setup_cellpose()
-        ValueError: If image channels don't match nuclear channel requirements
     """
-    try:
-        model = configured_settings['model']
-        eval_params = configured_settings['eval_params']
-    except KeyError as e:
-        raise KeyError(f"Invalid configured_settings: missing {e}. Use setup_cellpose() to create valid settings.") from e
+    model = model_context.model
+    eval_params = model_context.eval_params
     
     # Validate image channels against configuration
-    validate_image_channels(img, eval_params, backend_name)
+    validate_image_channels(img, eval_params, model_context.backend_name)
         
-    lock = configured_settings.get('lock', None)
+    lock = model_context.lock
     
     if lock is not None:
         with lock:
             logger.info("Threading lock acquired, running inference.")
-            return model.eval(img, **eval_params)
+            results = model.eval(img, **eval_params)
+            return results[:3]  # masks, flows, styles, ignore the last returned value, if any.
     
     logger.info("No threading lock provided, running inference directly.")
-    return model.eval(img, **eval_params)
+    results = model.eval(img, **eval_params)
+    return results[:3]  # masks, flows, styles, ignore the last returned value, if any.
 
 
 
-if __name__ == "__main__":
-    from tifffile import imread
-    import numpy as np
-    import sys
-    from pathlib import Path as TestPath
-    
-    
-    folder_path = TestPath("/media/ben/Analysis/Python/Docker_mount/Test_images/nd2/Run2/c2z25t23v1_nd2_s1/Images_Registered")
-    
-    # Load z-stack
-    # img = np.array([imread(p) for p in folder_path.rglob("*.tif") if 'f0001' in p.name and 'GFP' in p.name])
-    # cellpose_settings = {
-    #     "stitch_threshold": 0.75,
-    #     # "do_3D": True
-    # }
-    
-    # Load list
-    img = [imread(p) for p in folder_path.rglob("*.tif") if 'f0001' in p.name and 'GFP' in p.name]
-    cellpose_settings = {}
-    
-    # Load array
-    # img = imread(TestPath("/media/ben/Analysis/Python/Docker_mount/Test_images/nd2/Run2/c2z25t23v1_nd2_s1/Images_Registered/GFP_s01_f0001_z0008.tif"))
-    # cellpose_settings = {}
-    
-    # Load config
-    settings = setup_cellpose(cellpose_settings, threading=False, use_nuclear_channel=False)
-    
-    # Run segmentation
-    m,f,s = run_cellpose(img, settings)
-    
-    if isinstance(m, list):
-        print(len(m))
-        print(m[0].shape)
-    else:
-        print(m.shape)
-    
-    if isinstance(f[0], list):
-        print(len(f))
-        print(f[0][0].shape, f[0][1].shape, f[0][2].shape)
-    else:
-        print(f[0].shape, f[1].shape, f[2].shape)
