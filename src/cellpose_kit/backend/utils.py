@@ -7,70 +7,84 @@ from numpy.typing import NDArray
 logger = logging.getLogger('cellpose_kit.utils')
 
 
-def validate_image_channels(img: NDArray | list[NDArray], eval_params: dict[str, Any], backend_name: str | None) -> None:
+def validate_image_channels(img: NDArray[Any] | list[NDArray[Any]], axis_order: str, eval_params: dict[str, Any], backend_name: str | None) -> None:
     """
     Validate that input images have sufficient channels for the requested configuration.
     
-    This function ensures that when nuclear channel mode is enabled in Cellpose v3,
-    the input images have at least 2 channels to prevent runtime errors.
+    This function ensures that images have the required number of channels for Cellpose:
+    - v4: requires exactly 3 channels
+    - v3: requires at least 2 channels when nuclear channel mode is enabled
     
     Parameters:
         img: Input image(s) - NDArray or list of NDArrays
+        axis_order: String representing the axis order of the input image (e.g., "ZYX", "YXC", etc.). The position of 'C' indicates which axis contains channels.
         eval_params: Evaluation parameters containing channel configuration
         backend_name: Cellpose backend version ("v3" or "v4")
         
     Raises:
         ValueError: If image doesn't have sufficient channels for the configuration
-        
-    Examples:
-        >>> import numpy as np
-        >>> img = np.random.randint(0, 255, (256, 256), dtype=np.uint8)  # 2D grayscale
-        >>> eval_params = {'channels': [1, 2]}  # Nuclear channel mode
-        >>> validate_image_channels(img, eval_params, "v3")  # Raises ValueError
-        
-        >>> img = np.random.randint(0, 255, (256, 256, 2), dtype=np.uint8)  # Multi-channel
-        >>> validate_image_channels(img, eval_params, "v3")  # Passes validation
     """
-    # Only validate for v3 with nuclear channels configured
-    if backend_name != "v3" or eval_params.get('channels') != [1, 2]:
-        return
+    
+    def _get_channel_axis(axis_order: str) -> int | None:
+        """Get the axis index of the channel dimension."""
+        if 'C' not in axis_order:
+            return None
+        return axis_order.index('C')
+    
+    def _check_single_image(image: NDArray, channel_axis: int | None) -> None:
+        """Check if a single image has the required number of channels."""
         
-    def _check_single_image(image: NDArray) -> None:
-        """Check if a single image has sufficient channels for nuclear mode."""
-        if image.ndim == 2:
-            # 2D grayscale image (H, W) - no channels
+        if len(axis_order) != image.ndim:
             raise ValueError(
-                "Nuclear channel mode requires at least 2 channels, but got 2D grayscale image (H, W). "
-                "Please provide multi-channel image with shape (H, W, C) where C >= 2, "
-                "or set use_nuclear_channel=False for single-channel processing."
+                f"axis_order '{axis_order}' length ({len(axis_order)}) does not match "
+                f"image.ndim ({image.ndim}). Shape: {image.shape}"
             )
-        elif image.ndim == 3:
-            # Could be (H, W, C) or (Z, H, W) 
-            # Check if it has enough channels in the last dimension
-            if image.shape[-1] < 2:
+        
+        if channel_axis is None:
+            # No channel dimension specified - image is grayscale
+            n_channels = 1
+        else:
+            # Get channel count from the specified axis
+            if channel_axis >= image.ndim:
                 raise ValueError(
-                    f"Nuclear channel mode requires at least 2 channels, but got image with shape {image.shape}. "
-                    "Channel dimension (last dimension) must be >= 2. "
-                    "Please provide multi-channel image or set use_nuclear_channel=False."
+                    f"Channel axis '{channel_axis}' is out of bounds for image with shape {image.shape}. "
+                    f"Image has {image.ndim} dimensions but axis_order specifies channel at position {channel_axis}."
                 )
-        elif image.ndim == 4:
-            # Could be (Z, H, W, C) for 3D with channels
-            if image.shape[-1] < 2:
+            n_channels = image.shape[channel_axis]
+        
+        if backend_name == "v4":
+            # v4 requires exactly 3 channels
+            if n_channels != 3:
                 raise ValueError(
-                    f"Nuclear channel mode requires at least 2 channels, but got 4D image with shape {image.shape}. "
-                    "Channel dimension (last dimension) must be >= 2. "
-                    "Please provide multi-channel image or set use_nuclear_channel=False."
+                    f"Cellpose v4 requires exactly 3 channels, but got {n_channels}. "
+                    f"Image shape: {image.shape}, axis_order: '{axis_order}'. "
+                    "Please provide a 3-channel image (e.g., RGB or similar)."
                 )
-        # For higher dimensions, assume user knows what they're doing
+        elif backend_name == "v3":
+            # v3: check nuclear channel mode requirement
+            if eval_params.get('channels') == [1, 2]:
+                # Nuclear channel mode requires at least 2 channels
+                if n_channels < 2:
+                    raise ValueError(
+                        f"Nuclear channel mode requires at least 2 channels, but got {n_channels}. "
+                        f"Image shape: {image.shape}, axis_order: '{axis_order}'. "
+                        "Please provide multi-channel image or set use_nuclear_channel=False."
+                    )
+    
+    if backend_name is None:
+        raise ValueError(f"Backend_name must be 'v3' or 'v4' but not {backend_name}")  
+    
+    # Validate channel axis
+    channel_axis = _get_channel_axis(axis_order)
     
     # Validate based on input type
     if isinstance(img, list):
         for i, image in enumerate(img):
             try:
-                _check_single_image(image)
+                _check_single_image(image, channel_axis)
             except ValueError as e:
                 raise ValueError(f"Image {i} in list: {e}") from e
     else:
-        _check_single_image(img)
+        _check_single_image(img, channel_axis)
         
-    logger.debug(f"Image channel validation passed for {backend_name} with nuclear channels")
+    logger.debug(f"Image channel validation passed for {backend_name} (axis_order='{axis_order}')")

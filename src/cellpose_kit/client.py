@@ -51,7 +51,7 @@ class CellposeWrapper:
         
         return self
     
-    def run(self, img: NDArray[T] | list[NDArray[T]]) -> tuple[NDArray[T] | list[NDArray[T]], list[NDArray[T] | list[NDArray[T]]], NDArray[T] | list[NDArray[T]]]:
+    def run(self, img: NDArray[T] | list[NDArray[T]], axis_order: str) -> tuple[NDArray[T] | list[NDArray[T]], list[NDArray[T] | list[NDArray[T]]], NDArray[T] | list[NDArray[T]]]:
         """
         Run Cellpose segmentation using pre-configured settings.
         
@@ -74,7 +74,7 @@ class CellposeWrapper:
         mod_ctx = self._mod_ctx
         if mod_ctx is None:
             raise RuntimeError("Model context is not set up. Please call setup() before running inference.")
-        return run_cellpose(img, mod_ctx)
+        return run_cellpose(img, axis_order, mod_ctx)
     
     @property
     def version(self) -> str | None:

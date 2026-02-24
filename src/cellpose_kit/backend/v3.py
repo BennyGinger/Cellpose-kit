@@ -122,7 +122,7 @@ class BackendV3(Backend):
         
         # Check if model_type is valid (only if we have a model_type to validate)
         if mod_sets['model_type'] is not None:
-            if mod_sets['model_type'] not in self.model_names:
+            if self.model_names and mod_sets['model_type'] not in self.model_names:
                 logger.warning(f"⚠️ Unknown model type: {mod_sets['model_type']}, available models are: {self.model_names}, reverting to default model.")
                 mod_sets['model_type'] = DEFAULT_MODEL
 
@@ -147,7 +147,7 @@ class BackendV3(Backend):
 
     def configure_eval_params(self, user_settings: dict[str, Any], use_nuclear_channel: bool, do_denoise: bool) -> dict[str, Any]:
         
-        eval_params = EVAL_SETS_DENOISE if do_denoise else EVAL_SETS.copy()
+        eval_params = (EVAL_SETS_DENOISE if do_denoise else EVAL_SETS).copy()
 
         overwrites = {k: v for k, v in user_settings.items() if k in eval_params}
         eval_params.update(overwrites)

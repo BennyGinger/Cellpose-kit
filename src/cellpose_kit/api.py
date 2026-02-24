@@ -60,14 +60,17 @@ def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, u
 
     return model_context
 
-def run_cellpose(img: NDArray[T] | list[NDArray[T]], model_context: ModelContext) -> tuple[NDArray[T] | list[NDArray[T]], list[NDArray[T] | list[NDArray[T]]], NDArray[T] | list[NDArray[T]]]:
+def run_cellpose(img: NDArray[T] | list[NDArray[T]], axis_order: str, model_context: ModelContext) -> tuple[NDArray[T] | list[NDArray[T]], list[NDArray[T] | list[NDArray[T]]], NDArray[T] | list[NDArray[T]]]:
     """
     Run Cellpose segmentation using pre-configured settings.
     
+    Policy:
+        - v3: Flexible channel input, but must have >= 2 channels if nuclear mode enabled
+        - v4: Must have 3 channels
+    
     Parameters:
         img: Input image(s) - NDArray or list of NDArrays
-             - v3: Flexible channel input, but must have >= 2 channels if nuclear mode enabled
-             - v4: Must have 3 channels
+        axis_order: String representing the axis order of the input image (e.g., "ZYX", "YXC", etc.).
         configured_settings: Settings from setup_cellpose(), must contain 'model' and 'eval_params'
 
     Returns:
@@ -80,7 +83,7 @@ def run_cellpose(img: NDArray[T] | list[NDArray[T]], model_context: ModelContext
     eval_params = model_context.eval_params
     
     # Validate image channels against configuration
-    validate_image_channels(img, eval_params, model_context.backend_name)
+    validate_image_channels(img, axis_order, eval_params, model_context.backend_name)
         
     lock = model_context.lock
     
