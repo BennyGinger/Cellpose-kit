@@ -9,7 +9,4 @@ wheels/
 # Virtual environments
 .venv
 
-# Temporary test files
-test_*.py
-demo_*.py
-*_test.py
+

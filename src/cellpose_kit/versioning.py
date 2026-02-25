@@ -20,7 +20,7 @@ def _get_cellpose_version_info() -> tuple[Optional[str], Optional[int]]:
     try:
         version_string = importlib.metadata.version("cellpose")
     except importlib.metadata.PackageNotFoundError:
-        raise ModuleNotFoundError ("cellpose is not installed or couldn't be found. Install with pip install cellpose-kit[cellpose] (or uv pip install -e '.[cellpose]')”")
+        return None, None
         
     if version_string is None:
         return None, None
@@ -56,7 +56,10 @@ def get_cellpose_version() -> str:
     cellpose_version, major_version = _get_cellpose_version_info()
     
     if cellpose_version is None:
-        raise ImportError(f"Cellpose not found. Please install cellpose>={MIN_VERSION}")
+        raise ImportError(
+            "Cellpose not found. Install with pip install cellpose-kit[cellpose] "
+            "(or uv pip install -e '.[cellpose]')."
+        )
     
     if major_version is None:
         raise ImportError(f"Could not determine Cellpose version from '{cellpose_version}'")
