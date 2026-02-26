@@ -19,16 +19,19 @@ T = TypeVar('T', bound=np.generic)
 logger = logging.getLogger('cellpose_kit')
 
 
-def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, use_nuclear_channel: bool = False, do_denoise: bool = False, model: CellposeModel | CellposeDenoiseModel | None = None) -> ModelContext:
+def setup_cellpose(user_settings: dict[str, Any], threading: bool = False, use_nuclear_channel: bool = False, do_denoise: bool = False, model: CellposeModel | CellposeDenoiseModel | None = None) -> ModelContext:
     """
     Setup Cellpose model and evaluation parameters once for reuse.
     
+    Policy:
+        - For nuclear channel handling:
+            - v3: sets channels=[1,2] with 2 being the nuclear channel so the input image should have at least 2 channels if use_nuclear_channel=True
+            - v4: Informational only (expects 3-channel input, will ignore channel settings
+    
     Parameters:
-        cellpose_settings (dict): Dictionary containing the settings for Cellpose.
+        user_settings (dict): Dictionary containing the settings for Cellpose given by the user.
         threading (bool): If True, adds a lock for thread-safe inference.
         use_nuclear_channel (bool): If True, configures for nuclear channel usage.
-                                  - v3: Sets channels=[1,2] 
-                                  - v4: Informational only (expects 3-channel input)
         do_denoise (bool): If True, applies denoising to the input images. Only valid in v3, will be ignored in v4.
         model (Any): Optional pre-initialized Cellpose model instance to use instead of creating a new one. Default is None.
 
@@ -41,8 +44,8 @@ def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, u
     if model is not None:
         model_instance = model
     else:
-        model_instance = backend.init_model(cellpose_settings, do_denoise)
-    eval_params = backend.configure_eval_params(cellpose_settings, use_nuclear_channel, do_denoise)
+        model_instance = backend.init_model(user_settings, do_denoise)
+    eval_params = backend.configure_eval_params(user_settings, use_nuclear_channel, do_denoise)
 
     if model is not None:
         logger.info(f"Cellpose {backend_name} model reused from cache.")
@@ -51,6 +54,7 @@ def setup_cellpose(cellpose_settings: dict[str, Any], threading: bool = False, u
 
     model_context = ModelContext(model=model_instance, 
                                  eval_params=eval_params,
+                                 use_nuclear_channel=use_nuclear_channel,
                                  model_names=backend.model_names, 
                                  backend_name=backend_name)
 
@@ -66,7 +70,7 @@ def run_cellpose(img: NDArray[T] | list[NDArray[T]], axis_order: str, model_cont
     
     Policy:
         - v3: Flexible channel input, but must have >= 2 channels if nuclear mode enabled
-        - v4: Must have 3 channels
+        - v4: Flexible channel input, but must have 3 channels if nuclear mode enabled
     
     Parameters:
         img: Input image(s) - NDArray or list of NDArrays
@@ -83,7 +87,11 @@ def run_cellpose(img: NDArray[T] | list[NDArray[T]], axis_order: str, model_cont
     eval_params = model_context.eval_params
     
     # Validate image channels against configuration
-    validate_image_channels(img, axis_order, eval_params, model_context.backend_name)
+    validate_image_channels(img, 
+                            axis_order=axis_order, 
+                            eval_params=eval_params,
+                            backend_name=model_context.backend_name, 
+                            use_nuclear_channel=model_context.use_nuclear_channel)
         
     lock = model_context.lock
     

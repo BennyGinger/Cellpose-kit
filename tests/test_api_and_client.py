@@ -83,10 +83,11 @@ def test_setup_cellpose_creates_lock(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_run_cellpose_validates_and_returns_first_three(monkeypatch: pytest.MonkeyPatch) -> None:
     model = _ModelStub()
     model_context = ModelContext(model=cast(Any, model), eval_params={"channels": [1, 2]}, backend_name="v3")
+    model_context.use_nuclear_channel = False
     calls: list[tuple[Any, ...]] = []
 
-    def _validate(img, axis_order, eval_params, backend_name):
-        calls.append((img, axis_order, eval_params, backend_name))
+    def _validate(img, axis_order, eval_params, backend_name, use_nuclear_channel=False):
+        calls.append((img, axis_order, eval_params, backend_name, use_nuclear_channel))
 
     monkeypatch.setattr(api, "validate_image_channels", _validate)
 
@@ -94,7 +95,7 @@ def test_run_cellpose_validates_and_returns_first_three(monkeypatch: pytest.Monk
     result = api.run_cellpose(img, "YXC", model_context)
 
     assert result == ("masks", "flows", "styles")
-    assert calls == [(img, "YXC", {"channels": [1, 2]}, "v3")]
+    assert calls == [(img, "YXC", {"channels": [1, 2]}, "v3", False)]
     assert model.last_kwargs == {"channels": [1, 2]}
 
 
@@ -102,6 +103,7 @@ def test_run_cellpose_uses_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     model = _ModelStub()
     lock = _LockProbe(Lock())
     model_context = ModelContext(model=cast(Any, model), eval_params={}, backend_name="v3", lock=cast(Any, lock))
+    model_context.use_nuclear_channel = False
 
     monkeypatch.setattr(api, "validate_image_channels", lambda *args, **kwargs: None)
 

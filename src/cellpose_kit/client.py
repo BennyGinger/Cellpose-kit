@@ -38,7 +38,7 @@ class CellposeWrapper:
     user_settings: dict[str, Any]
     threading: bool = False
     use_nuclear_channel: bool = False
-    do_denoise: bool = False
+    do_denoise: bool = True
     model: CellposeModel | CellposeDenoiseModel | None = None
     
     _mod_ctx: ModelContext | None = None

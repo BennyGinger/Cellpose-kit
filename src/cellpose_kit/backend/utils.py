@@ -7,19 +7,21 @@ from numpy.typing import NDArray
 logger = logging.getLogger('cellpose_kit.utils')
 
 
-def validate_image_channels(img: NDArray[Any] | list[NDArray[Any]], axis_order: str, eval_params: dict[str, Any], backend_name: str | None) -> None:
+def validate_image_channels(img: NDArray[Any] | list[NDArray[Any]], axis_order: str, eval_params: dict[str, Any], backend_name: str | None, use_nuclear_channel: bool = False) -> None:
     """
     Validate that input images have sufficient channels for the requested configuration.
     
-    This function ensures that images have the required number of channels for Cellpose:
-    - v4: requires exactly 3 channels
-    - v3: requires at least 2 channels when nuclear channel mode is enabled
+    This function ensures that images have the required number of channels for Cellpose when using nuclear channel mode:
+    - v4 + use_nuclear_channel=True: requires exactly 3 channels
+    - v3 + use_nuclear_channel=True: requires at least 2 channels
+    - use_nuclear_channel=False: no channel requirement
     
     Parameters:
         img: Input image(s) - NDArray or list of NDArrays
         axis_order: String representing the axis order of the input image (e.g., "ZYX", "YXC", etc.). The position of 'C' indicates which axis contains channels.
         eval_params: Evaluation parameters containing channel configuration
         backend_name: Cellpose backend version ("v3" or "v4")
+        use_nuclear_channel: Whether nuclear channel mode is enabled
         
     Raises:
         ValueError: If image doesn't have sufficient channels for the configuration
@@ -52,21 +54,20 @@ def validate_image_channels(img: NDArray[Any] | list[NDArray[Any]], axis_order: 
                 )
             n_channels = image.shape[channel_axis]
         
-        if backend_name == "v4":
-            # v4 requires exactly 3 channels
-            if n_channels != 3:
-                raise ValueError(
-                    f"Cellpose v4 requires exactly 3 channels, but got {n_channels}. "
-                    f"Image shape: {image.shape}, axis_order: '{axis_order}'. "
-                    "Please provide a 3-channel image (e.g., RGB or similar)."
-                )
-        elif backend_name == "v3":
-            # v3: check nuclear channel mode requirement
-            if eval_params.get('channels') == [1, 2]:
-                # Nuclear channel mode requires at least 2 channels
+        if use_nuclear_channel:
+            if backend_name == "v4":
+                # v4 with nuclear mode requires exactly 3 channels
+                if n_channels != 3:
+                    raise ValueError(
+                        f"Cellpose v4 with nuclear channel mode requires exactly 3 channels, but got {n_channels}. "
+                        f"Image shape: {image.shape}, axis_order: '{axis_order}'. "
+                        "Please provide a 3-channel image (e.g., RGB or similar)."
+                    )
+            elif backend_name == "v3":
+                # v3 with nuclear mode requires at least 2 channels
                 if n_channels < 2:
                     raise ValueError(
-                        f"Nuclear channel mode requires at least 2 channels, but got {n_channels}. "
+                        f"Cellpose v3 with nuclear channel mode requires at least 2 channels, but got {n_channels}. "
                         f"Image shape: {image.shape}, axis_order: '{axis_order}'. "
                         "Please provide multi-channel image or set use_nuclear_channel=False."
                     )
