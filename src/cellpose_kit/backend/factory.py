@@ -1,5 +1,5 @@
 from cellpose_kit.backend.protocol import Backend
-from cellpose_kit.versioning import get_cellpose_version
+from cellpose_kit.backend.versioning import get_cellpose_version
 
 
 def load_backend() -> tuple[Backend, str]:

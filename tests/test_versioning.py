@@ -4,7 +4,7 @@ import importlib.metadata
 
 import pytest
 
-from cellpose_kit import versioning
+from cellpose_kit.backend import versioning
 
 
 def test_get_cellpose_version_v3(monkeypatch: pytest.MonkeyPatch) -> None:

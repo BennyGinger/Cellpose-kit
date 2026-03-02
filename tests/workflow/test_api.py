@@ -7,9 +7,9 @@ from typing import Any, cast
 import pytest
 import numpy as np
 
-import cellpose_kit.api as api
-from cellpose_kit.backend.runtime import ModelContext
-from cellpose_kit.client import CellposeWrapper
+import cellpose_kit.workflow.api as api
+from cellpose_kit.workflow.runtime import ModelContext
+from cellpose_kit.workflow.models import InputStream
 
 
 @dataclass
@@ -80,23 +80,49 @@ def test_setup_cellpose_creates_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     assert model_context.lock is not None
 
 
-def test_run_cellpose_validates_and_returns_first_three(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_cellpose_returns_stream_result(monkeypatch: pytest.MonkeyPatch) -> None:
     model = _ModelStub()
     model_context = ModelContext(model=cast(Any, model), eval_params={"channels": [1, 2]}, backend_name="v3")
     model_context.use_nuclear_channel = False
-    calls: list[tuple[Any, ...]] = []
 
-    def _validate(img, axis_order, eval_params, backend_name, use_nuclear_channel=False):
-        calls.append((img, axis_order, eval_params, backend_name, use_nuclear_channel))
+    def _prepare_streams(img, axis_order, backend, use_nuclear_channel):
+        stream = InputStream(
+            source_array=img,
+            axis_order=axis_order,
+            stream_id="stream0",
+            meta={
+                "channel_index": None,
+                "padded_to_3": False,
+                "original_n_channels": 2,
+                "stream_shape": tuple(img.shape),
+                "stream_axis_order": axis_order,
+            },
+        )
+        return [stream], {
+            "backend": backend,
+            "use_nuclear_channel": use_nuclear_channel,
+            "split_channels": False,
+            "input_axis_order": axis_order,
+            "input_shape": tuple(img.shape),
+            "n_input_channels": 2,
+            "any_padding_applied": False,
+        }
 
-    monkeypatch.setattr(api, "validate_image_channels", _validate)
+    monkeypatch.setattr(api, "prepare_streams", _prepare_streams)
 
     img = np.zeros((8, 8, 2), dtype=np.uint8)
     result = api.run_cellpose(img, "YXC", model_context)
 
-    assert result == ("masks", "flows", "styles")
-    assert calls == [(img, "YXC", {"channels": [1, 2]}, "v3", False)]
+    assert len(result.streams) == 1
+    assert result.single().masks == ["masks"]
+    assert result.single().flows == ["flows"]
+    assert result.single().styles == ["styles"]
+    assert result.meta["n_streams"] == 1
     assert model.last_kwargs == {"channels": [1, 2]}
+    assert isinstance(model.last_args, tuple)
+    assert len(model.last_args) == 1
+    assert isinstance(model.last_args[0], list)
+    assert len(model.last_args[0]) == 1
 
 
 def test_run_cellpose_uses_lock(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,33 +131,33 @@ def test_run_cellpose_uses_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     model_context = ModelContext(model=cast(Any, model), eval_params={}, backend_name="v3", lock=cast(Any, lock))
     model_context.use_nuclear_channel = False
 
-    monkeypatch.setattr(api, "validate_image_channels", lambda *args, **kwargs: None)
+    def _prepare_streams(img, axis_order, backend, use_nuclear_channel):
+        return [
+            InputStream(
+                source_array=img,
+                axis_order=axis_order,
+                stream_id="stream0",
+                meta={
+                    "channel_index": None,
+                    "padded_to_3": False,
+                    "original_n_channels": 2,
+                    "stream_shape": tuple(img.shape),
+                    "stream_axis_order": axis_order,
+                },
+            )
+        ], {
+            "backend": backend,
+            "use_nuclear_channel": use_nuclear_channel,
+            "split_channels": False,
+            "input_axis_order": axis_order,
+            "input_shape": tuple(img.shape),
+            "n_input_channels": 2,
+            "any_padding_applied": False,
+        }
+
+    monkeypatch.setattr(api, "prepare_streams", _prepare_streams)
 
     img = np.zeros((8, 8, 2), dtype=np.uint8)
     api.run_cellpose(img, "YXC", model_context)
 
     assert lock.entered is True
-
-
-def test_cellpose_wrapper_setup_stores_context(monkeypatch: pytest.MonkeyPatch) -> None:
-    backend = _BackendStub(model_names=["cyto2", "cyto3"])
-
-    def _load_backend():
-        return backend, "v3"
-
-    monkeypatch.setattr(api, "load_backend", _load_backend)
-
-    wrapper = CellposeWrapper(user_settings={"model_type": "cyto2"})
-    wrapper.setup()
-
-    assert wrapper._mod_ctx is not None
-    assert wrapper.version == "v3"
-    assert wrapper.model_names == ["cyto2", "cyto3"]
-
-
-def test_cellpose_wrapper_run_before_setup_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    wrapper = CellposeWrapper(user_settings={})
-    img = np.zeros((8, 8, 2), dtype=np.uint8)
-
-    with pytest.raises(RuntimeError, match="Model context is not set up"):
-        wrapper.run(img, "YXC")

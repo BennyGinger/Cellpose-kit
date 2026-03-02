@@ -28,3 +28,16 @@ class ModelContext:
     model_names: list[str] | None = None
     backend_name: str | None = None
     lock: Lock | None = None
+    
+
+def extract_model_name(model_context: ModelContext) -> str | None:
+    """
+    Extract the model name from the Cellpose model instance for informational purposes. It checks common attributes that may contain the model name, such as 'pretrained_model' or 'model_type'. If no valid model name is found, it returns None.
+    """
+    
+    model = model_context.model
+    for attr in ("pretrained_model", "model_type"):
+        value = getattr(model, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    return None

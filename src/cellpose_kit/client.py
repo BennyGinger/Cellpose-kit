@@ -1,19 +1,17 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING, Self, TypeVar
+from typing import Any, TYPE_CHECKING
 
 from numpy.typing import NDArray
-import numpy as np
 
-from cellpose_kit.api import run_cellpose, setup_cellpose
-from cellpose_kit.backend.runtime import ModelContext
+from cellpose_kit.workflow.api import run_cellpose, setup_cellpose
+from cellpose_kit.workflow.runtime import ModelContext
+from cellpose_kit.workflow.models import SegmentationResult
 
 if TYPE_CHECKING:
     from cellpose.models import CellposeModel
     from cellpose.denoise import CellposeDenoiseModel
 
-
-T = TypeVar('T', bound=np.generic)
 
 @dataclass
 class CellposeWrapper:
@@ -42,8 +40,31 @@ class CellposeWrapper:
     model: CellposeModel | CellposeDenoiseModel | None = None
     
     _mod_ctx: ModelContext | None = None
+    _segmentation_result: SegmentationResult | None = None
     
-    def setup(self) -> Self:
+    
+    @classmethod
+    def from_dict(cls, settings_dict: dict[str, Any]) -> "CellposeWrapper":
+        """
+        Create a CellposeWrapper instance from a dictionary of settings.
+        
+        This method allows for flexible instantiation of the CellposeWrapper using a settings dictionary, which can be useful for loading settings from configuration files or other sources. It will extract the relevant parameters from the dictionary and pass them to the constructor.
+        
+        Parameters:
+            settings_dict (dict): A dictionary containing the settings for Cellpose. Expected keys include 'user_settings', 'threading', 'use_nuclear_channel', 'do_denoise', and 'model'.
+        
+        Returns:
+            CellposeWrapper: An instance of CellposeWrapper initialized with the provided settings.
+        """
+        return cls(
+            user_settings=settings_dict.get('user_settings', {}),
+            threading=settings_dict.get('threading', False),
+            use_nuclear_channel=settings_dict.get('use_nuclear_channel', False),
+            do_denoise=settings_dict.get('do_denoise', True),
+            model=settings_dict.get('model', None)
+        )
+    
+    def setup(self) -> "CellposeWrapper":
         """
         Setup Cellpose model and evaluation parameters once for reuse.
         """
@@ -51,7 +72,7 @@ class CellposeWrapper:
         
         return self
     
-    def run(self, img: NDArray[T] | list[NDArray[T]], axis_order: str) -> tuple[NDArray[T] | list[NDArray[T]], list[NDArray[T] | list[NDArray[T]]], NDArray[T] | list[NDArray[T]]]:
+    def run(self, img: NDArray[Any], axis_order: str) -> dict[int, list[NDArray[Any]]]:
         """
         Run Cellpose segmentation using pre-configured settings.
         
@@ -60,13 +81,10 @@ class CellposeWrapper:
             - v4: Must have 3 channels
 
         Parameters:
-            img: Input image(s) - NDArray or list of NDArrays
+            img: Input image ndarray
 
         Returns:
-            tuple: (masks, flows, styles)
-            - masks: NDArray (for single/batch) or list[NDArray] (for list input)
-            - flows: list[NDArray] (for single/batch) or list[list[NDArray]] (for list input)
-            - styles: NDArray (for single/batch) or list[NDArray] (for list input)
+            SegmentationResult: stable stream-structured segmentation outputs.
             
         Raises:
             RuntimeError: If the model context is not set up.
@@ -74,7 +92,8 @@ class CellposeWrapper:
         mod_ctx = self._mod_ctx
         if mod_ctx is None:
             raise RuntimeError("Model context is not set up. Please call setup() before running inference.")
-        return run_cellpose(img, axis_order, mod_ctx)
+        self._segmentation_result = run_cellpose(img, axis_order, mod_ctx)
+        return self._segmentation_result.masks_by_channel()
     
     @property
     def version(self) -> str | None:
@@ -100,3 +119,15 @@ class CellposeWrapper:
             names = self._mod_ctx.model_names
             return names if names is not None else []
         return []
+    
+    @property
+    def segmentation_result(self) -> SegmentationResult:
+        """
+        Get the full SegmentationResult object from the last run, which includes masks, flows, styles, and metadata.
+        
+        Returns:
+            SegmentationResult: The full segmentation result from the last run.
+        """
+        if self._segmentation_result is None:
+            raise RuntimeError("No segmentation result available. Please run inference first.")
+        return self._segmentation_result
