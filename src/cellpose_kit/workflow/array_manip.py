@@ -3,7 +3,6 @@ from typing import TypeVar
 from numpy.typing import NDArray
 import numpy as np
 
-from cellpose_kit.workflow.validation import validate_axis_order
 from cellpose_kit.workflow.utils import get_axis
 
 
@@ -14,7 +13,6 @@ def pad_to_3_channels(img: NDArray[T], axis_order: str) -> NDArray[T]:
     Pad a 2-channel image to 3 channels by adding a zero channel. The new channel will be added at the end of the channel axis.
     """
     
-    validate_axis_order(img, axis_order)
     channel_axis = get_axis(axis_order, "C")
     if channel_axis is None:
         raise ValueError(f"Cannot pad to 3 channels because axis_order '{axis_order}' has no 'C' axis. Shape: {img.shape}")
@@ -34,7 +32,6 @@ def split_channels(img: NDArray[T], axis_order: str) -> tuple[list[NDArray[T]], 
     Split a multi-channel image into separate arrays for each channel. The channel axis is removed from the output
     """
     
-    validate_axis_order(img, axis_order)
     channel_axis = get_axis(axis_order, "C")
     if channel_axis is None:
         raise ValueError(f"Cannot split channels because axis_order '{axis_order}' has no 'C' axis. Shape: {img.shape}")
@@ -48,7 +45,6 @@ def get_frames_from_array(img: NDArray[T], axis_order: str) -> list[NDArray[T]]:
     """
     Extract frames from array along T axis, or return single-element list if no T axis.
     """
-    validate_axis_order(img, axis_order)
     frame_axis = get_axis(axis_order, "T")
     
     if frame_axis is None:

@@ -9,7 +9,7 @@ from cellpose_kit.workflow.models import InputStream
 
 def test_prepare_streams_nuclear_mode_v3():
     img = np.zeros((10, 10, 2), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=True)
+    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=True, do_3D=False)
     
     assert len(streams) == 1
     assert streams[0].stream_id == "stream0"
@@ -22,7 +22,7 @@ def test_prepare_streams_nuclear_mode_v3():
 
 def test_prepare_streams_nuclear_mode_v4_with_2_channels():
     img = np.zeros((10, 10, 2), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v4", use_nuclear_channel=True)
+    streams, meta = prepare_streams(img, "YXC", "v4", use_nuclear_channel=True, do_3D=False)
     
     assert len(streams) == 1
     assert streams[0].source_array.shape == (10, 10, 3)  # Padded to 3
@@ -32,7 +32,7 @@ def test_prepare_streams_nuclear_mode_v4_with_2_channels():
 
 def test_prepare_streams_nuclear_mode_v4_with_3_channels():
     img = np.zeros((10, 10, 3), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v4", use_nuclear_channel=True)
+    streams, meta = prepare_streams(img, "YXC", "v4", use_nuclear_channel=True, do_3D=False)
     
     assert len(streams) == 1
     assert streams[0].source_array.shape == (10, 10, 3)  # No padding needed
@@ -42,7 +42,7 @@ def test_prepare_streams_nuclear_mode_v4_with_3_channels():
 
 def test_prepare_streams_non_nuclear_split_channels():
     img = np.zeros((10, 10, 3), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=False)
+    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=False, do_3D=False)
     
     assert len(streams) == 3
     assert streams[0].stream_id == "ch0"
@@ -55,7 +55,7 @@ def test_prepare_streams_non_nuclear_split_channels():
 
 def test_prepare_streams_non_nuclear_no_split_single_channel():
     img = np.zeros((10, 10), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YX", "v3", use_nuclear_channel=False)
+    streams, meta = prepare_streams(img, "YX", "v3", use_nuclear_channel=False, do_3D=False)
     
     assert len(streams) == 1
     assert streams[0].stream_id == "stream0"
@@ -66,18 +66,18 @@ def test_prepare_streams_non_nuclear_no_split_single_channel():
 def test_prepare_streams_invalid_backend():
     img = np.zeros((10, 10, 2), dtype=np.uint8)
     with pytest.raises(ValueError, match="Unsupported backend"):
-        prepare_streams(img, "YXC", "v5", use_nuclear_channel=False)
+        prepare_streams(img, "YXC", "v5", use_nuclear_channel=False, do_3D=False)
 
 
 def test_prepare_streams_v3_nuclear_insufficient_channels():
     img = np.zeros((10, 10), dtype=np.uint8)
     with pytest.raises(ValueError, match="at least 2 channels"):
-        prepare_streams(img, "YX", "v3", use_nuclear_channel=True)
+        prepare_streams(img, "YX", "v3", use_nuclear_channel=True, do_3D=False)
 
 
 def test_prepare_streams_metadata_complete():
     img = np.zeros((10, 10, 2), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=False)
+    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=False, do_3D=False)
     
     assert meta["backend"] == "v3"
     assert meta["use_nuclear_channel"] is False

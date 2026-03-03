@@ -85,7 +85,7 @@ def test_run_cellpose_returns_stream_result(monkeypatch: pytest.MonkeyPatch) -> 
     model_context = ModelContext(model=cast(Any, model), eval_params={"channels": [1, 2]}, backend_name="v3")
     model_context.use_nuclear_channel = False
 
-    def _prepare_streams(img, axis_order, backend, use_nuclear_channel):
+    def _prepare_streams(img, axis_order, backend, use_nuclear_channel, do_3D):
         stream = InputStream(
             source_array=img,
             axis_order=axis_order,
@@ -131,7 +131,7 @@ def test_run_cellpose_uses_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     model_context = ModelContext(model=cast(Any, model), eval_params={}, backend_name="v3", lock=cast(Any, lock))
     model_context.use_nuclear_channel = False
 
-    def _prepare_streams(img, axis_order, backend, use_nuclear_channel):
+    def _prepare_streams(img, axis_order, backend, use_nuclear_channel, do_3D):
         return [
             InputStream(
                 source_array=img,

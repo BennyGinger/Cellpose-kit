@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any, TypeVar
 
 from cellpose_kit.workflow.array_manip import pad_to_3_channels, split_channels
-from cellpose_kit.workflow.utils import count_channels, get_axis
-from cellpose_kit.workflow.validation import validate_channel_requirements
+from cellpose_kit.workflow.utils import count_axis, get_axis
+from cellpose_kit.workflow.validation import validate_array
 import numpy as np
 from numpy.typing import NDArray
 
@@ -14,7 +14,7 @@ from cellpose_kit.workflow.models import InputStream
 T = TypeVar('T', bound=np.generic)
 
 
-def prepare_streams(img: NDArray[Any], axis_order: str, backend: str, use_nuclear_channel: bool) -> tuple[list[InputStream], dict[str, Any]]:
+def prepare_streams(img: NDArray[Any], axis_order: str, backend: str, use_nuclear_channel: bool, do_3D: bool) -> tuple[list[InputStream], dict[str, Any]]:
     """
     Prepare input streams for Cellpose inference.
     
@@ -26,16 +26,16 @@ def prepare_streams(img: NDArray[Any], axis_order: str, backend: str, use_nuclea
         axis_order: String representing the axis order (e.g., "TCZYX", "YXC")
         backend: Cellpose backend ("v3" or "v4")
         use_nuclear_channel: Whether nuclear channel mode is enabled
-        split_channels_flag: Whether to split channels into separate streams (non-nuclear mode)
+        do_3D: Whether 3D mode is enabled
         
     Returns:
         Tuple of (list of InputStreams, run metadata dict)
     """
     # Validate requirements upfront
-    validate_channel_requirements(img, axis_order, backend, use_nuclear_channel)
+    validate_array(img, axis_order, backend, use_nuclear_channel, do_3D)
     
     channel_axis = get_axis(axis_order, "C")
-    n_input_channels = count_channels(img, axis_order)
+    n_channels = count_axis(img, axis_order, "C")
 
     streams: list[InputStream] = []
     is_padding_applied = False
@@ -46,14 +46,14 @@ def prepare_streams(img: NDArray[Any], axis_order: str, backend: str, use_nuclea
         prepared = img # At this point img has 2 or 3 channels as validated above
         padded_to_3 = False
 
-        if backend == "v4" and n_input_channels == 2:
+        if backend == "v4" and n_channels == 2:
             prepared = pad_to_3_channels(img, axis_order)
             padded_to_3 = True
             is_padding_applied = True
 
         stream_meta = {"channel_index": None,
                        "padded_to_3": padded_to_3,
-                       "original_n_channels": n_input_channels,
+                       "original_n_channels": n_channels,
                        "stream_shape": prepared.shape,
                        "stream_axis_order": axis_order,}
         
@@ -64,14 +64,14 @@ def prepare_streams(img: NDArray[Any], axis_order: str, backend: str, use_nuclea
         
     else: # Non-nuclear mode
         # Split channels
-        if channel_axis is not None and n_input_channels > 1:
+        if channel_axis is not None and n_channels > 1:
             split_arrays, split_axis_order = split_channels(img, axis_order)
             channel_split = True
             
             for idx, array in enumerate(split_arrays):
                 stream_meta = {"channel_index": idx,
                                "padded_to_3": False,
-                               "original_n_channels": n_input_channels,
+                               "original_n_channels": n_channels,
                                "stream_shape": array.shape,
                                "stream_axis_order": split_axis_order,}
                 
@@ -83,7 +83,7 @@ def prepare_streams(img: NDArray[Any], axis_order: str, backend: str, use_nuclea
         else: # No splitting: single stream with original array
             stream_meta = {"channel_index": None,
                            "padded_to_3": False,
-                           "original_n_channels": n_input_channels,
+                           "original_n_channels": n_channels,
                            "stream_shape": img.shape,
                            "stream_axis_order": axis_order,}
             
@@ -97,7 +97,7 @@ def prepare_streams(img: NDArray[Any], axis_order: str, backend: str, use_nuclea
                         "split_channels": channel_split,
                         "input_axis_order": axis_order,
                         "input_shape": img.shape,
-                        "n_input_channels": n_input_channels,
+                        "n_input_channels": n_channels,
                         "any_padding_applied": is_padding_applied,}
 
     return streams, run_meta_partial

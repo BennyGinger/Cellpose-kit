@@ -17,6 +17,7 @@ class ModelContext:
         model (CellposeModel | CellposeDenoiseModel): The initialized Cellpose model instance.
         eval_params (dict): The evaluation parameters configured for the model.
         use_nuclear_channel (bool): Whether nuclear channel mode is enabled, for informational purposes.
+        do_3D (bool): Whether the model is configured for 3D segmentation, for informational purposes.
         model_names (list[str] | None): List of available model names for validation and informational purposes.
         backend_name (str | None): Name of the backend being used (e.g., 'v3' or 'v4') for informational purposes.
         lock (Lock | None): Optional lock for thread-safe inference when threading is enabled.
@@ -25,6 +26,7 @@ class ModelContext:
     model: CellposeModel | CellposeDenoiseModel
     eval_params: dict[str, Any]
     use_nuclear_channel: bool = False
+    do_3D: bool = False
     model_names: list[str] | None = None
     backend_name: str | None = None
     lock: Lock | None = None

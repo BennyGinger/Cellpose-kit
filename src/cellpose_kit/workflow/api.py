@@ -48,6 +48,9 @@ def setup_cellpose(user_settings: dict[str, Any], threading: bool = False, use_n
         model_instance = backend.init_model(user_settings, do_denoise)
     eval_params = backend.configure_eval_params(user_settings, use_nuclear_channel, do_denoise)
 
+    # Get the 3D flag
+    do_3D = bool(eval_params.get("do_3D", False)) or float(eval_params.get("stitch_threshold", 0)) > 0
+    
     if model is not None:
         logger.info(f"Cellpose {backend_name} model reused from cache.")
     else:
@@ -55,6 +58,7 @@ def setup_cellpose(user_settings: dict[str, Any], threading: bool = False, use_n
 
     model_context = ModelContext(model=model_instance, 
                                  eval_params=eval_params,
+                                 do_3D=do_3D,
                                  use_nuclear_channel=use_nuclear_channel,
                                  model_names=backend.model_names, 
                                  backend_name=backend_name)
@@ -93,7 +97,8 @@ def run_cellpose(img: NDArray[Any], axis_order: str, model_context: ModelContext
     streams, run_meta = prepare_streams(img,
                                         axis_order,
                                         backend=backend_name,
-                                        use_nuclear_channel=model_context.use_nuclear_channel,)
+                                        use_nuclear_channel=model_context.use_nuclear_channel,
+                                        do_3D=model_context.do_3D)
 
     lock = model_context.lock
     stream_results: list[StreamResult] = []
