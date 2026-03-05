@@ -5,7 +5,7 @@ from typing import Any, TYPE_CHECKING
 from threading import Lock
 
 from cellpose_kit.workflow.array_manip import get_frames_from_array
-from cellpose_kit.workflow.validation import ensure_list
+from cellpose_kit.workflow.validation import ensure_lists
 from numpy.typing import NDArray
 
 from cellpose_kit.workflow.runtime import ModelContext, extract_model_name
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from cellpose.models import CellposeModel
     from cellpose.denoise import CellposeDenoiseModel
 
-logger = logging.getLogger('cellpose_kit')
+logger = logging.getLogger(__name__)
 
 
 def setup_cellpose(user_settings: dict[str, Any], threading: bool = False, use_nuclear_channel: bool = False, do_denoise: bool = False, model: CellposeModel | CellposeDenoiseModel | None = None) -> ModelContext:
@@ -119,10 +119,8 @@ def run_cellpose(img: NDArray[Any], axis_order: str, model_context: ModelContext
             logger.debug("No threading lock provided, running inference directly.")
             results = model.eval(frames, **eval_params)
 
-        masks_raw, flows_raw, styles_raw = results[:3]
-        masks = ensure_list(masks_raw, frames_count, "masks")
-        flows = ensure_list(flows_raw, frames_count, "flows")
-        styles = ensure_list(styles_raw, frames_count, "styles")
+        # masks: list[NDArray], flows: list[list[NDArray]], styles: list[NDArray]]
+        masks, flows, styles = ensure_lists(results[:3], frames_count, ("masks", "flows", "styles"))
 
         stream_meta = dict(stream.meta)
         stream_meta["frames_count"] = frames_count

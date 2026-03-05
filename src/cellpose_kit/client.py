@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, TypeVar
+import logging
 
 from numpy.typing import NDArray
+import numpy as np
 
 from cellpose_kit.workflow.api import run_cellpose, setup_cellpose
 from cellpose_kit.workflow.runtime import ModelContext
@@ -12,6 +15,9 @@ if TYPE_CHECKING:
     from cellpose.models import CellposeModel
     from cellpose.denoise import CellposeDenoiseModel
 
+T = TypeVar('T', bound=np.generic)
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class CellposeWrapper:
@@ -19,36 +25,38 @@ class CellposeWrapper:
     Wrapper class to hold cellpose model and evaluation parameters and execute inference with proper validation and optional threading support, regardless of the underlying Cellpose version (v3 or v4).
     
     Policy:
+            - For multiple channels:
+                - in both v3 and v4, if the array provided has multiple channels, and nuclear mode is not enabled, the channels will be automatically split and treated as separate streams. If nuclear mode is enabled, see below.
             - For nuclear channel handling:
-                - v3: sets channels=[1,2] with 2 being the nuclear channel.
-                - v4: Informational only (expects 3-channel input)
+                - v3: requires at least 2 channels, the first one being the 'cytoplasm' channel and the second one being the 'nuclear' channel. Additional channels will be ignored.
+                - v4: requires exactly 3 channels, RGB-like. All 3 channels will be processed to produce only one mask output. If only 2 channels are provided with nuclear mode enabled, the input will be automatically padded to 3 channels by adding a blank channel. Any other number of channels will raise an error.
+            - For array dimensionality:
+                - Both v3 and v4 can handle 2D or 3D arrays. If 3D segmentation is enabled (do_3D=True or stitch_threshold >0), the input must have a Z-axis with at least 2 slices. If the dimensionality of the input array does not meet the requirements for the configuration, a ValueError will be raised with a clear message indicating the issue.
             - For denoising:
                 - v3: If do_denoise=True, applies denoising settings.
                 - v4: Denoising is not applicable and will be ignored if provided.
     
     Attributes:
         user_settings (dict): Dictionary containing the settings for Cellpose given by the user.
-        threading (bool): If True, adds a lock for thread-safe inference.
         use_nuclear_channel (bool): If True, configures for nuclear channel usage.
         do_denoise (bool): If True, applies denoising to the input images.
         model (CellposeModel | CellposeDenoiseModel | None): Optional pre-initialized Cellpose model instance to use instead of creating a new one. Default is None.
+        threading (bool): If True, adds a lock for thread-safe inference.
     """
     user_settings: dict[str, Any]
-    threading: bool = False
     use_nuclear_channel: bool = False
     do_denoise: bool = True
     model: CellposeModel | CellposeDenoiseModel | None = None
+    threading: bool = False
     
     _mod_ctx: ModelContext | None = None
     _segmentation_result: SegmentationResult | None = None
     
     
     @classmethod
-    def from_dict(cls, settings_dict: dict[str, Any]) -> "CellposeWrapper":
+    def from_dict(cls, settings_dict: dict[str, Any]) -> CellposeWrapper:
         """
         Create a CellposeWrapper instance from a dictionary of settings.
-        
-        This method allows for flexible instantiation of the CellposeWrapper using a settings dictionary, which can be useful for loading settings from configuration files or other sources. It will extract the relevant parameters from the dictionary and pass them to the constructor.
         
         Parameters:
             settings_dict (dict): A dictionary containing the settings for Cellpose. Expected keys include 'user_settings', 'threading', 'use_nuclear_channel', 'do_denoise', and 'model'.
@@ -56,23 +64,20 @@ class CellposeWrapper:
         Returns:
             CellposeWrapper: An instance of CellposeWrapper initialized with the provided settings.
         """
-        return cls(
-            user_settings=settings_dict.get('user_settings', {}),
-            threading=settings_dict.get('threading', False),
-            use_nuclear_channel=settings_dict.get('use_nuclear_channel', False),
-            do_denoise=settings_dict.get('do_denoise', True),
-            model=settings_dict.get('model', None)
-        )
+        return cls(user_settings=settings_dict.get('user_settings', {}),
+                   threading=settings_dict.get('threading', False),
+                   use_nuclear_channel=settings_dict.get('use_nuclear_channel', False),
+                   do_denoise=settings_dict.get('do_denoise', True),
+                   model=settings_dict.get('model', None))
     
-    def setup(self) -> "CellposeWrapper":
+    def setup(self) -> None:
         """
         Setup Cellpose model and evaluation parameters once for reuse.
         """
         self._mod_ctx = setup_cellpose(self.user_settings, self.threading, self.use_nuclear_channel, self.do_denoise, self.model)
-        
-        return self
+        logger.debug(f"Cellpose setup completed with: {self._mod_ctx.dump()}")
     
-    def run(self, img: NDArray[Any], axis_order: str) -> dict[int, list[NDArray[Any]]]:
+    def run(self, img: NDArray[T], axis_order: str) -> NDArray[T]:
         """
         Run Cellpose segmentation using pre-configured settings.
         
@@ -82,9 +87,10 @@ class CellposeWrapper:
 
         Parameters:
             img: Input image ndarray
+            axis_order: String representing the axis order (e.g., "TCZYX", "YXC")
 
         Returns:
-            SegmentationResult: stable stream-structured segmentation outputs.
+            A reconstructed mask array which should have the same shape as input array, except with the channel dimension, depending on the configuration. Multiple channels input will return multichannel mask output (same shape), execept if nuclear mode is enabled, then the output will be a single mask channel regardless of input channels. Otherwise, if mono-channel input is provided, the output will also be mono-channel, with the 'C' axis removed from the output axis order (if it was present in the input).
             
         Raises:
             RuntimeError: If the model context is not set up.
@@ -93,7 +99,8 @@ class CellposeWrapper:
         if mod_ctx is None:
             raise RuntimeError("Model context is not set up. Please call setup() before running inference.")
         self._segmentation_result = run_cellpose(img, axis_order, mod_ctx)
-        return self._segmentation_result.masks_by_channel()
+        logger.debug(f"Segementation completed with meta: {self._segmentation_result.meta}")
+        return self._segmentation_result.masks_array()
     
     @property
     def version(self) -> str | None:
@@ -121,13 +128,25 @@ class CellposeWrapper:
         return []
     
     @property
-    def segmentation_result(self) -> SegmentationResult:
+    def segmentation_meta(self) -> dict[str, Any]:
         """
-        Get the full SegmentationResult object from the last run, which includes masks, flows, styles, and metadata.
+        Get the metadata from the segmentation result.
         
         Returns:
-            SegmentationResult: The full segmentation result from the last run.
+            dict[str, Any]: Metadata dictionary from the segmentation result, or an empty dictionary if no segmentation result is available.
         """
         if self._segmentation_result is None:
-            raise RuntimeError("No segmentation result available. Please run inference first.")
-        return self._segmentation_result
+            return {}
+        return self._segmentation_result.meta
+    
+    @property
+    def output_axis_order(self) -> str | None:
+        """
+        Get the output axis order from the segmentation result metadata.
+        
+        Returns:
+            str | None: The output axis order string (e.g., "TCZYX", "YXC") if available in the segmentation result metadata, otherwise None.
+        """
+        if self._segmentation_result is None:
+            return None
+        return self._segmentation_result.output_axis_order

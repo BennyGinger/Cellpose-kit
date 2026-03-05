@@ -43,61 +43,108 @@ def test_stream_result_creation():
     assert result.meta["frames_count"] == 1
 
 
-def test_segmentation_result_single():
-    stream = StreamResult(
-        stream_id="stream0",
-        channel_index=None,
-        masks=[np.zeros((10, 10))],
-        flows=[[np.zeros((10, 10))]],
-        styles=[np.zeros(64)],
-        meta={}
-    )
+def test_segmentation_result_output_axis_order_property():
+    seg_result = SegmentationResult(streams=[], meta={"output_axis_order": "TCYX"})
+    assert seg_result.output_axis_order == "TCYX"
+
+
+def test_segmentation_result_output_axis_order_none():
+    seg_result = SegmentationResult(streams=[], meta={})
+    assert seg_result.output_axis_order is None
+
+
+def test_masks_array_single_stream_no_time():
+    masks = [np.full((3, 4), 5, dtype=np.uint8)]
+    stream = StreamResult(stream_id="stream0", channel_index=None, masks=masks, flows=[], styles=[], meta={})
     
+    seg_result = SegmentationResult(streams=[stream], meta={"output_axis_order": "YX"})
+    arr = seg_result.masks_array()
+    
+    assert arr.shape == (3, 4)
+    assert np.array_equal(arr, masks[0])
+
+
+def test_masks_array_single_stream_with_time():
+    masks = [np.full((3, 4), 1, dtype=np.uint8), np.full((3, 4), 2, dtype=np.uint8)]
+    stream = StreamResult(stream_id="stream0", channel_index=None, masks=masks, flows=[], styles=[], meta={})
+    
+    seg_result = SegmentationResult(streams=[stream], meta={"output_axis_order": "TYX"})
+    arr = seg_result.masks_array()
+    
+    assert arr.shape == (2, 3, 4)
+    assert np.array_equal(arr[0], masks[0])
+    assert np.array_equal(arr[1], masks[1])
+
+
+def test_masks_array_multi_stream_with_channel():
+    ch0_masks = [np.full((2, 3), 10, dtype=np.uint8)]
+    ch1_masks = [np.full((2, 3), 20, dtype=np.uint8)]
+    
+    streams = [
+        StreamResult(stream_id="ch0", channel_index=0, masks=ch0_masks, flows=[], styles=[], meta={}),
+        StreamResult(stream_id="ch1", channel_index=1, masks=ch1_masks, flows=[], styles=[], meta={}),
+    ]
+    
+    seg_result = SegmentationResult(streams=streams, meta={"output_axis_order": "CYX"})
+    arr = seg_result.masks_array()
+    
+    assert arr.shape == (2, 2, 3)
+    assert np.array_equal(arr[0], ch0_masks[0])
+    assert np.array_equal(arr[1], ch1_masks[0])
+
+
+def test_masks_array_multi_stream_with_time_and_channel():
+    ch0_masks = [np.full((2, 3), 10, dtype=np.uint8), np.full((2, 3), 11, dtype=np.uint8)]
+    ch1_masks = [np.full((2, 3), 20, dtype=np.uint8), np.full((2, 3), 21, dtype=np.uint8)]
+    
+    streams = [
+        StreamResult(stream_id="ch0", channel_index=0, masks=ch0_masks, flows=[], styles=[], meta={}),
+        StreamResult(stream_id="ch1", channel_index=1, masks=ch1_masks, flows=[], styles=[], meta={}),
+    ]
+    
+    seg_result = SegmentationResult(streams=streams, meta={"output_axis_order": "TCYX"})
+    arr = seg_result.masks_array()
+    
+    assert arr.shape == (2, 2, 2, 3)
+    assert np.array_equal(arr[0, 0], ch0_masks[0])
+    assert np.array_equal(arr[1, 0], ch0_masks[1])
+    assert np.array_equal(arr[0, 1], ch1_masks[0])
+    assert np.array_equal(arr[1, 1], ch1_masks[1])
+
+
+def test_masks_array_no_output_axis_order():
+    stream = StreamResult(stream_id="stream0", channel_index=None, masks=[np.zeros((3, 3))], flows=[], styles=[], meta={})
     seg_result = SegmentationResult(streams=[stream], meta={})
-    single = seg_result.single()
     
-    assert single.stream_id == "stream0"
+    with pytest.raises(ValueError, match="no 'output_axis_order'"):
+        seg_result.masks_array()
 
 
-def test_segmentation_result_single_raises_with_multiple_streams():
+def test_masks_array_multiple_frames_without_t_axis():
+    masks = [np.zeros((3, 3)), np.ones((3, 3))]
+    stream = StreamResult(stream_id="stream0", channel_index=None, masks=masks, flows=[], styles=[], meta={})
+    seg_result = SegmentationResult(streams=[stream], meta={"output_axis_order": "YX"})
+    
+    with pytest.raises(ValueError, match="Expected 1 mask"):
+        seg_result.masks_array()
+
+
+def test_masks_array_multiple_streams_without_c_axis():
     streams = [
-        StreamResult(stream_id="s1", channel_index=0, masks=[], flows=[], styles=[], meta={}),
-        StreamResult(stream_id="s2", channel_index=1, masks=[], flows=[], styles=[], meta={}),
+        StreamResult(stream_id="ch0", channel_index=0, masks=[np.zeros((3, 3))], flows=[], styles=[], meta={}),
+        StreamResult(stream_id="ch1", channel_index=1, masks=[np.ones((3, 3))], flows=[], styles=[], meta={}),
     ]
+    seg_result = SegmentationResult(streams=streams, meta={"output_axis_order": "TYX"})
     
-    seg_result = SegmentationResult(streams=streams, meta={})
-    
-    with pytest.raises(ValueError, match="Expected exactly 1 stream"):
-        seg_result.single()
+    with pytest.raises(ValueError, match="Expected 1 stream"):
+        seg_result.masks_array()
 
 
-def test_segmentation_result_masks_by_channel():
-    mask0 = [np.zeros((10, 10))]
-    mask1 = [np.ones((10, 10))]
-    
+def test_masks_array_channel_index_none_with_c_axis():
     streams = [
-        StreamResult(stream_id="ch0", channel_index=0, masks=mask0, flows=[], styles=[], meta={}),
-        StreamResult(stream_id="ch1", channel_index=1, masks=mask1, flows=[], styles=[], meta={}),
+        StreamResult(stream_id="ch0", channel_index=None, masks=[np.zeros((3, 3))], flows=[], styles=[], meta={}),
     ]
+    seg_result = SegmentationResult(streams=streams, meta={"output_axis_order": "CYX"})
     
-    seg_result = SegmentationResult(streams=streams, meta={})
-    masks_dict = seg_result.masks_by_channel()
-    
-    assert 0 in masks_dict
-    assert 1 in masks_dict
-    assert masks_dict[0] == mask0
-    assert masks_dict[1] == mask1
-
-
-def test_segmentation_result_masks_by_channel_with_none():
-    mask = [np.zeros((10, 10))]
-    
-    streams = [
-        StreamResult(stream_id="stream0", channel_index=None, masks=mask, flows=[], styles=[], meta={}),
-    ]
-    
-    seg_result = SegmentationResult(streams=streams, meta={})
-    masks_dict = seg_result.masks_by_channel()
-    
-    assert 0 in masks_dict
-    assert masks_dict[0] == mask
+    with pytest.raises(ValueError, match="channel_index=None"):
+        seg_result.masks_array()

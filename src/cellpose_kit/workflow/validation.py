@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 
 from numpy.typing import NDArray
@@ -69,7 +70,7 @@ def validate_array(img: NDArray[Any], axis_order: str, backend: str, use_nuclear
     _validate_channel_requirements(img, axis_order, backend, use_nuclear_channel)
     _validate_z_axis_requirements(img, axis_order, do_3D)
 
-def ensure_list(value: Any, expected_len: int, field_name: str) -> list[Any]:
+def _ensure_list(value: Any, expected_len: int, field_name: str) -> list[Any]:
     """
     Ensure that the value is a list of the expected length. If it's not a list but expected_len is 1, wrap it in a list.
     """
@@ -83,3 +84,21 @@ def ensure_list(value: Any, expected_len: int, field_name: str) -> list[Any]:
         return [value]
     
     raise ValueError(f"Cellpose returned non-list '{field_name}' for multi-frame input ({expected_len} frames).")
+
+
+def ensure_lists(values: Sequence[Any], expected_len: int, field_names: Sequence[str]) -> tuple[list[Any], ...]:
+    """
+    Ensure that multiple values are lists of the expected length. Processes all items in one call.
+    
+    Parameters:
+        values: Tuple of values to process
+        expected_len: Expected length for each value
+        field_names: Tuple of field names corresponding to each value (for error messages)
+    
+    Returns:
+        Tuple of processed lists, one for each input value
+    """
+    if len(values) != len(field_names):
+        raise ValueError(f"Number of values ({len(values)}) does not match number of field names ({len(field_names)})")
+    
+    return tuple(_ensure_list(value, expected_len, field_name) for value, field_name in zip(values, field_names))

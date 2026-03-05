@@ -114,9 +114,9 @@ def test_run_cellpose_returns_stream_result(monkeypatch: pytest.MonkeyPatch) -> 
     result = api.run_cellpose(img, "YXC", model_context)
 
     assert len(result.streams) == 1
-    assert result.single().masks == ["masks"]
-    assert result.single().flows == ["flows"]
-    assert result.single().styles == ["styles"]
+    assert result.streams[0].masks == ["masks"]
+    assert result.streams[0].flows == ["flows"]
+    assert result.streams[0].styles == ["styles"]
     assert result.meta["n_streams"] == 1
     assert model.last_kwargs == {"channels": [1, 2]}
     assert isinstance(model.last_args, tuple)

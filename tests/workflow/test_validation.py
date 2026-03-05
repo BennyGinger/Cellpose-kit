@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import numpy as np
 
-from cellpose_kit.workflow.validation import _validate_axis_order, _validate_channel_requirements, _validate_z_axis_requirements, ensure_list
+from cellpose_kit.workflow.validation import _validate_axis_order, _validate_channel_requirements, _validate_z_axis_requirements, _ensure_list, ensure_lists
 
 
 def test_validate_axis_order_correct():
@@ -73,20 +73,71 @@ def test_validate_z_axis_requirements_3d_enabled_with_valid_z_axis():
 
 
 def test_ensure_list_with_list():
-    result = ensure_list([1, 2, 3], 3, "test")
+    result = _ensure_list([1, 2, 3], 3, "test")
     assert result == [1, 2, 3]
 
 
 def test_ensure_list_with_single_value():
-    result = ensure_list("value", 1, "test")
+    result = _ensure_list("value", 1, "test")
     assert result == ["value"]
 
 
 def test_ensure_list_wrong_length():
     with pytest.raises(ValueError, match="length 2 but expected 3"):
-        ensure_list([1, 2], 3, "test")
+        _ensure_list([1, 2], 3, "test")
 
 
 def test_ensure_list_single_value_multi_frame():
     with pytest.raises(ValueError, match="non-list"):
-        ensure_list("value", 5, "test")
+        _ensure_list("value", 5, "test")
+
+
+def test_ensure_list_multiple_basic():
+    masks, flows, styles = ensure_lists(
+        ("mask_value", "flow_value", "style_value"),
+        1,
+        ("masks", "flows", "styles")
+    )
+    assert masks == ["mask_value"]
+    assert flows == ["flow_value"]
+    assert styles == ["style_value"]
+
+
+def test_ensure_list_multiple_with_lists():
+    masks, flows, styles = ensure_lists(
+        ([1, 2, 3], [4, 5, 6], [7, 8, 9]),
+        3,
+        ("masks", "flows", "styles")
+    )
+    assert masks == [1, 2, 3]
+    assert flows == [4, 5, 6]
+    assert styles == [7, 8, 9]
+
+
+def test_ensure_list_multiple_mismatched_field_names():
+    with pytest.raises(ValueError, match="Number of values"):
+        ensure_lists(
+            ("a", "b", "c"),
+            1,
+            ("field1", "field2")  # Only 2 names for 3 values
+        )
+
+
+def test_ensure_list_multiple_wrong_length():
+    with pytest.raises(ValueError, match="length 2 but expected 3"):
+        ensure_lists(
+            ([1, 2], [3, 4], [5, 6]),
+            3,
+            ("masks", "flows", "styles")
+        )
+
+
+def test_ensure_list_multiple_mixed_types():
+    # Test with scalar value and list containing 2 items, all with expected_len=2
+    masks, flows = ensure_lists(
+        ([1, 2], [3, 4]),
+        2,
+        ("masks", "flows")
+    )
+    assert masks == [1, 2]
+    assert flows == [3, 4]

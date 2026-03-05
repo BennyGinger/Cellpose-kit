@@ -31,6 +31,20 @@ class ModelContext:
     backend_name: str | None = None
     lock: Lock | None = None
     
+    def dump(self) -> dict[str, Any]:
+        """
+        Dump the model context information into a dictionary for logging or debugging purposes. This includes the model type, evaluation parameters, and configuration flags.
+        """
+        return {
+            "model": self.model.__class__.__name__,
+            "eval_params": self.eval_params,
+            "use_nuclear_channel": self.use_nuclear_channel,
+            "do_3D": self.do_3D,
+            "model_names": self.model_names,
+            "backend_name": self.backend_name,
+            "is_lock": True if self.lock else False,
+        }
+    
 
 def extract_model_name(model_context: ModelContext) -> str | None:
     """

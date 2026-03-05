@@ -45,9 +45,9 @@ def test_prepare_streams_non_nuclear_split_channels():
     streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=False, do_3D=False)
     
     assert len(streams) == 3
-    assert streams[0].stream_id == "ch0"
-    assert streams[1].stream_id == "ch1"
-    assert streams[2].stream_id == "ch2"
+    assert streams[0].stream_id == "stream0"
+    assert streams[1].stream_id == "stream1"
+    assert streams[2].stream_id == "stream2"
     assert streams[0].axis_order == "YX"  # Channel axis removed
     assert streams[0].meta["channel_index"] == 0
     assert meta["split_channels"] is True
