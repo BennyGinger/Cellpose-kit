@@ -13,7 +13,7 @@ with open(os.devnull, 'w') as devnull, contextlib.redirect_stdout(devnull):
     from cellpose.io import logger_setup
 
 
-logger = logging.getLogger('cellpose_kit_v4')
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = 'cpsam'
 
