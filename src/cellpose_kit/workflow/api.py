@@ -4,12 +4,13 @@ from time import perf_counter
 from typing import Any, TYPE_CHECKING
 from threading import Lock
 
-from cellpose_kit.workflow.array_manip import get_frames_from_array
-from cellpose_kit.workflow.validation import ensure_lists
 from numpy.typing import NDArray
 
-from cellpose_kit.workflow.runtime import ModelContext, extract_model_name
+from cellpose_kit.backend.versioning import SUPPORTED_VERSIONS
 from cellpose_kit.backend.factory import load_backend
+from cellpose_kit.workflow.runtime import ModelContext, extract_model_name
+from cellpose_kit.workflow.validation import ensure_lists
+from cellpose_kit.workflow.array_manip import get_frames_from_array
 from cellpose_kit.workflow.models import SegmentationResult, StreamResult
 from cellpose_kit.workflow.prep import prepare_streams
 
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+ALLOWED_VERSION = {f"v{ver}" for ver in SUPPORTED_VERSIONS}
 
 def setup_cellpose(user_settings: dict[str, Any], threading: bool = False, use_nuclear_channel: bool = False, do_denoise: bool = False, model: CellposeModel | CellposeDenoiseModel | None = None) -> ModelContext:
     """
@@ -91,8 +94,8 @@ def run_cellpose(img: NDArray[Any], axis_order: str, model_context: ModelContext
     eval_params = model_context.eval_params
     backend_name = model_context.backend_name
 
-    if backend_name not in {"v3", "v4"}:
-        raise ValueError(f"Invalid backend '{backend_name}'. Expected 'v3' or 'v4'. axis_order='{axis_order}', shape={img.shape}, use_nuclear_channel={model_context.use_nuclear_channel}")
+    if backend_name not in ALLOWED_VERSION:
+        raise ValueError(f"Invalid backend '{backend_name}'. Expected {ALLOWED_VERSION}. axis_order='{axis_order}', shape={img.shape}, use_nuclear_channel={model_context.use_nuclear_channel}")
 
     streams, run_meta = prepare_streams(img,
                                         axis_order,
