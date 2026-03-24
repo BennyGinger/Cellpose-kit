@@ -138,6 +138,11 @@ class CellposeWrapper:
         if self._segmentation_result is None:
             return {}
         return self._segmentation_result.meta
+
+    @property
+    def segmentation_result(self) -> SegmentationResult | None:
+        """Return the latest raw segmentation result object, if available."""
+        return self._segmentation_result
     
     @property
     def output_axis_order(self) -> str | None:

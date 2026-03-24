@@ -31,6 +31,21 @@ class SegmentationResult:
     meta: dict[str, Any] = field(default_factory=dict)
 
     @property
+    def masks(self) -> list[list[NDArray[Any]]]:
+        """Return per-stream masks in stream order."""
+        return [stream.masks for stream in self.streams]
+
+    @property
+    def flows(self) -> list[list[list[NDArray[Any]]]]:
+        """Return per-stream flows in stream order."""
+        return [stream.flows for stream in self.streams]
+
+    @property
+    def styles(self) -> list[list[NDArray[Any]]]:
+        """Return per-stream styles in stream order."""
+        return [stream.styles for stream in self.streams]
+
+    @property
     def output_axis_order(self) -> str | None:
         return self.meta.get("output_axis_order")
     
