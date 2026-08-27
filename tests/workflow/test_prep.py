@@ -1,87 +1,72 @@
 from __future__ import annotations
 
-import pytest
 import numpy as np
+import pytest
 
-from cellpose_kit.workflow.prep import prepare_streams
-from cellpose_kit.workflow.models import InputStream
+from cellpose_kit.workflow.prep import prepare_batches
 
 
-def test_prepare_streams_nuclear_mode_v3():
+def test_prepare_batches_nuclear_mode_v3() -> None:
     img = np.zeros((10, 10, 2), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=True, do_3D=False)
-    
-    assert len(streams) == 1
-    assert streams[0].stream_id == "stream0"
-    assert streams[0].axis_order == "YXC"
-    assert streams[0].meta["channel_index"] is None
-    assert streams[0].meta["padded_to_3"] is False
-    assert meta["use_nuclear_channel"] is True
-    assert meta["split_channels"] is False
+    prepared = prepare_batches(img, "YXC", "v3", True, False)
+
+    assert len(prepared.batches) == 1
+    assert prepared.batches[0].axes == "YXC"
+    assert prepared.batches[0].channel_index is None
+    assert prepared.output_axes == "YX"
 
 
-def test_prepare_streams_nuclear_mode_v4_with_2_channels():
+def test_prepare_batches_nuclear_mode_v4_pads_two_channels() -> None:
     img = np.zeros((10, 10, 2), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v4", use_nuclear_channel=True, do_3D=False)
-    
-    assert len(streams) == 1
-    assert streams[0].source_array.shape == (10, 10, 3)  # Padded to 3
-    assert streams[0].meta["padded_to_3"] is True
-    assert meta["any_padding_applied"] is True
+    prepared = prepare_batches(img, "YXC", "v4", True, False)
+
+    assert prepared.batches[0].array.shape == (10, 10, 3)
+    assert prepared.output_axes == "YX"
 
 
-def test_prepare_streams_nuclear_mode_v4_with_3_channels():
+def test_prepare_batches_nuclear_mode_v4_keeps_three_channels() -> None:
     img = np.zeros((10, 10, 3), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v4", use_nuclear_channel=True, do_3D=False)
-    
-    assert len(streams) == 1
-    assert streams[0].source_array.shape == (10, 10, 3)  # No padding needed
-    assert streams[0].meta["padded_to_3"] is False
-    assert meta["any_padding_applied"] is False
+    prepared = prepare_batches(img, "YXC", "v4", True, False)
+
+    assert prepared.batches[0].array.shape == (10, 10, 3)
 
 
-def test_prepare_streams_non_nuclear_split_channels():
+def test_prepare_batches_processes_channels_independently() -> None:
     img = np.zeros((10, 10, 3), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=False, do_3D=False)
-    
-    assert len(streams) == 3
-    assert streams[0].stream_id == "stream0"
-    assert streams[1].stream_id == "stream1"
-    assert streams[2].stream_id == "stream2"
-    assert streams[0].axis_order == "YX"  # Channel axis removed
-    assert streams[0].meta["channel_index"] == 0
-    assert meta["split_channels"] is True
+    prepared = prepare_batches(img, "YXC", "v3", False, False)
+
+    assert len(prepared.batches) == 3
+    assert [batch.channel_index for batch in prepared.batches] == [0, 1, 2]
+    assert all(batch.axes == "YX" for batch in prepared.batches)
+    assert prepared.output_axes == "YXC"
 
 
-def test_prepare_streams_non_nuclear_no_split_single_channel():
+def test_prepare_batches_without_channel_axis() -> None:
     img = np.zeros((10, 10), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YX", "v3", use_nuclear_channel=False, do_3D=False)
-    
-    assert len(streams) == 1
-    assert streams[0].stream_id == "stream0"
-    assert streams[0].meta["channel_index"] is None
-    assert meta["split_channels"] is False
+    prepared = prepare_batches(img, "YX", "v3", False, False)
+
+    assert len(prepared.batches) == 1
+    assert prepared.batches[0].array is img
+    assert prepared.batches[0].axes == "YX"
+    assert prepared.output_axes == "YX"
 
 
-def test_prepare_streams_invalid_backend():
+def test_prepare_batches_removes_singleton_channel_axis() -> None:
+    img = np.zeros((1, 10, 10), dtype=np.uint8)
+    prepared = prepare_batches(img, "CYX", "v3", False, False)
+
+    assert prepared.batches[0].array.shape == (10, 10)
+    assert prepared.batches[0].axes == "YX"
+    assert prepared.output_axes == "YX"
+
+
+def test_prepare_batches_rejects_invalid_backend() -> None:
     img = np.zeros((10, 10, 2), dtype=np.uint8)
     with pytest.raises(ValueError, match="Unsupported backend"):
-        prepare_streams(img, "YXC", "v5", use_nuclear_channel=False, do_3D=False)
+        prepare_batches(img, "YXC", "v5", False, False)
 
 
-def test_prepare_streams_v3_nuclear_insufficient_channels():
+def test_prepare_batches_rejects_missing_nuclear_channel() -> None:
     img = np.zeros((10, 10), dtype=np.uint8)
     with pytest.raises(ValueError, match="at least 2 channels"):
-        prepare_streams(img, "YX", "v3", use_nuclear_channel=True, do_3D=False)
-
-
-def test_prepare_streams_metadata_complete():
-    img = np.zeros((10, 10, 2), dtype=np.uint8)
-    streams, meta = prepare_streams(img, "YXC", "v3", use_nuclear_channel=False, do_3D=False)
-    
-    assert meta["backend"] == "v3"
-    assert meta["use_nuclear_channel"] is False
-    assert meta["input_axis_order"] == "YXC"
-    assert meta["input_shape"] == (10, 10, 2)
-    assert meta["n_input_channels"] == 2
-    assert "any_padding_applied" in meta
+        prepare_batches(img, "YX", "v3", True, False)

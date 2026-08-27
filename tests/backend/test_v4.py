@@ -5,13 +5,13 @@ from pathlib import Path
 
 def test_v4_default_model_when_none_provided(backend_v4) -> None:
     backend = backend_v4.BackendV4()
-    mod_sets = backend._configure_model({}, do_denoise=False)
+    mod_sets = backend.configure_model({}, do_denoise=False)
     assert mod_sets["pretrained_model"] == backend_v4.DEFAULT_MODEL
 
 
 def test_v4_invalid_pretrained_model_uses_default(backend_v4) -> None:
     backend = backend_v4.BackendV4()
-    mod_sets = backend._configure_model({"pretrained_model": "missing_model"}, do_denoise=False)
+    mod_sets = backend.configure_model({"pretrained_model": "missing_model"}, do_denoise=False)
     assert mod_sets["pretrained_model"] == backend_v4.DEFAULT_MODEL
 
 
@@ -19,13 +19,13 @@ def test_v4_accepts_pretrained_model_path(backend_v4, tmp_path: Path) -> None:
     backend = backend_v4.BackendV4()
     model_file = tmp_path / "model.pt"
     model_file.write_text("dummy")
-    mod_sets = backend._configure_model({"pretrained_model": str(model_file)}, do_denoise=False)
+    mod_sets = backend.configure_model({"pretrained_model": str(model_file)}, do_denoise=False)
     assert mod_sets["pretrained_model"] == str(model_file)
 
 
 def test_v4_deprecated_model_type_converted(backend_v4) -> None:
     backend = backend_v4.BackendV4()
-    mod_sets = backend._configure_model({"model_type": "cpsam"}, do_denoise=False)
+    mod_sets = backend.configure_model({"model_type": "cpsam"}, do_denoise=False)
     assert mod_sets["pretrained_model"] == "cpsam"
 
 

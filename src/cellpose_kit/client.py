@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, TYPE_CHECKING, TypeVar
 import logging
 
 from numpy.typing import NDArray
 import numpy as np
 
-from cellpose_kit.workflow.api import run_cellpose, setup_cellpose
+from cellpose_kit.workflow.api import run_cellpose
+from cellpose_kit.workflow.configuration import configure_inference, initialize_model, model_key
 from cellpose_kit.workflow.runtime import ModelContext
 from cellpose_kit.workflow.models import SegmentationResult
 
@@ -19,14 +21,49 @@ T = TypeVar('T', bound=np.generic)
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass(frozen=True)
+class _ModelEntry:
+    model: Any
+    lock: Lock | None
+    model_names: list[str] | None
+    backend_name: str | None
+
+
+_models: dict[str, _ModelEntry] = {}
+_models_lock = Lock()
+
+
+def _get_model(user_settings: dict[str, Any], do_denoise: bool) -> _ModelEntry:
+    key = model_key(user_settings, do_denoise)
+    entry = _models.get(key)
+    if entry is not None:
+        logger.debug("Reusing initialized Cellpose model.")
+        return entry
+
+    with _models_lock:
+        entry = _models.get(key)
+        if entry is None:
+            context = initialize_model(user_settings,
+                                       threading=True,
+                                       do_denoise=do_denoise,)
+            entry = _ModelEntry(model=context.model,
+                                lock=context.lock,
+                                model_names=context.model_names,
+                                backend_name=context.backend_name,)
+            _models[key] = entry
+    return entry
+
 @dataclass
 class CellposeWrapper:
     """
-    Wrapper class to hold cellpose model and evaluation parameters and execute inference with proper validation and optional threading support, regardless of the underlying Cellpose version (v3 or v4).
+    Wrapper class to configure and run Cellpose across supported versions.
     
     Policy:
+            - For model reuse:
+                - Initialized models are automatically reused within the current Python process when their backend-specific model settings match. Each wrapper keeps independent evaluation settings and results, while wrappers using the same model share its inference lock. Separate processes have separate models.
             - For multiple channels:
-                - in both v3 and v4, if the array provided has multiple channels, and nuclear mode is not enabled, the channels will be automatically split and treated as separate streams. If nuclear mode is enabled, see below.
+                - in both v3 and v4, if the array provided has multiple channels, and nuclear mode is not enabled, the channels will be processed as independent inference batches. If nuclear mode is enabled, see below.
             - For nuclear channel handling:
                 - v3: requires at least 2 channels, the first one being the 'cytoplasm' channel and the second one being the 'nuclear' channel. Additional channels will be ignored.
                 - v4: requires exactly 3 channels, RGB-like. All 3 channels will be processed to produce only one mask output. If only 2 channels are provided with nuclear mode enabled, the input will be automatically padded to 3 channels by adding a blank channel. Any other number of channels will raise an error.
@@ -41,7 +78,7 @@ class CellposeWrapper:
         use_nuclear_channel (bool): If True, configures for nuclear channel usage.
         do_denoise (bool): If True, applies denoising to the input images.
         model (CellposeModel | CellposeDenoiseModel | None): Optional pre-initialized Cellpose model instance to use instead of creating a new one. Default is None.
-        threading (bool): If True, adds a lock for thread-safe inference.
+        threading (bool): If True, adds an inference lock for an explicitly supplied model.
     """
     user_settings: dict[str, Any]
     use_nuclear_channel: bool = False
@@ -72,10 +109,33 @@ class CellposeWrapper:
     
     def setup(self) -> None:
         """
-        Setup Cellpose model and evaluation parameters once for reuse.
+        Attach a reusable model and configure this wrapper's evaluation settings.
         """
-        self._mod_ctx = setup_cellpose(self.user_settings, self.threading, self.use_nuclear_channel, self.do_denoise, self.model)
+        if self.model is None:
+            entry = _get_model(self.user_settings, self.do_denoise)
+            model_context = ModelContext(model=entry.model,
+                                         eval_params={},
+                                         model_names=entry.model_names,
+                                         backend_name=entry.backend_name,
+                                         lock=entry.lock,)
+        else:
+            model_context = initialize_model(self.user_settings,
+                                             self.threading,
+                                             model=self.model,
+                                             do_denoise=self.do_denoise,)
+        self._mod_ctx = configure_inference(self.user_settings,
+                                            model_context,
+                                            self.use_nuclear_channel,
+                                            self.do_denoise,)
         logger.debug(f"Cellpose setup completed with: {self._mod_ctx.dump()}")
+
+    @classmethod
+    def clear_models(cls) -> None:
+        """
+        Release references to all automatically reused models in this process.
+        """
+        with _models_lock:
+            _models.clear()
     
     def run(self, img: NDArray[T], axis_order: str) -> NDArray[T]:
         """
@@ -99,7 +159,6 @@ class CellposeWrapper:
         if mod_ctx is None:
             raise RuntimeError("Model context is not set up. Please call setup() before running inference.")
         self._segmentation_result = run_cellpose(img, axis_order, mod_ctx)
-        logger.debug(f"Segementation completed with meta: {self._segmentation_result.meta}")
         return self._segmentation_result.masks_array()
     
     @property
@@ -128,30 +187,20 @@ class CellposeWrapper:
         return []
     
     @property
-    def segmentation_meta(self) -> dict[str, Any]:
-        """
-        Get the metadata from the segmentation result.
-        
-        Returns:
-            dict[str, Any]: Metadata dictionary from the segmentation result, or an empty dictionary if no segmentation result is available.
-        """
-        if self._segmentation_result is None:
-            return {}
-        return self._segmentation_result.meta
-
-    @property
     def segmentation_result(self) -> SegmentationResult | None:
-        """Return the latest raw segmentation result object, if available."""
+        """
+        Return the latest raw segmentation result object, if available.
+        """
         return self._segmentation_result
     
     @property
     def output_axis_order(self) -> str | None:
         """
-        Get the output axis order from the segmentation result metadata.
+        Get the reconstructed mask axis order.
         
         Returns:
-            str | None: The output axis order string (e.g., "TCZYX", "YXC") if available in the segmentation result metadata, otherwise None.
+            str | None: Output axes when segmentation has run, otherwise None.
         """
         if self._segmentation_result is None:
             return None
-        return self._segmentation_result.output_axis_order
+        return self._segmentation_result.output_axes

@@ -34,14 +34,14 @@ def test_v3_configure_model_prefers_pretrained_file(backend_v3, tmp_path: Path) 
     backend = backend_v3.BackendV3()
     model_file = tmp_path / "model.npz"
     model_file.write_text("dummy")
-    mod_sets = backend._configure_model({"pretrained_model": str(model_file), "model_type": "cyto2"}, do_denoise=False)
+    mod_sets = backend.configure_model({"pretrained_model": str(model_file), "model_type": "cyto2"}, do_denoise=False)
     assert mod_sets["model_type"] is None
     assert mod_sets["pretrained_model"] == str(model_file)
 
 
 def test_v3_invalid_model_type_falls_back_to_default(backend_v3) -> None:
     backend = backend_v3.BackendV3()
-    mod_sets = backend._configure_model({"model_type": "invalid_model"}, do_denoise=False)
+    mod_sets = backend.configure_model({"model_type": "invalid_model"}, do_denoise=False)
     assert mod_sets["model_type"] == backend_v3.DEFAULT_MODEL
 
 

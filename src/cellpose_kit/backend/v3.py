@@ -95,7 +95,12 @@ EVAL_SETS_DENOISE = {
 @dataclass
 class BackendV3(Backend):
 
-    def _configure_model(self, user_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
+    def supported_settings(self, do_denoise: bool) -> set[str]:
+        model_settings = MOD_SETS_DENOISE if do_denoise else MOD_SETS
+        eval_settings = EVAL_SETS_DENOISE if do_denoise else EVAL_SETS
+        return set(model_settings) | set(eval_settings)
+
+    def configure_model(self, user_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
         
         mod_sets = MOD_SETS_DENOISE.copy() if do_denoise else MOD_SETS.copy()
 
@@ -135,7 +140,7 @@ class BackendV3(Backend):
 
     def init_model(self, user_settings: dict[str, Any], do_denoise: bool) -> Union[CellposeModel, CellposeDenoiseModel]:
         
-        mod_sets = self._configure_model(user_settings, do_denoise)
+        mod_sets = self.configure_model(user_settings, do_denoise)
 
         logger_setup()
         if mod_sets.get('restore_type', None) is not None:
@@ -171,5 +176,3 @@ class BackendV3(Backend):
             eval_params['channels'] = [0, 0]
         
         return eval_params
-
-

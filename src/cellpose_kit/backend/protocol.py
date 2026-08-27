@@ -25,13 +25,20 @@ class Backend(ABC):
             pass
     
     @abstractmethod
-    def _configure_model(self, user_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
+    def configure_model(self, user_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
         """
         Configure the model settings based on user input. If missing or invalid, revert to defaults. It uses the default values from cellpose.
         
         Args:
             user_settings (dict): Dictionary containing the settings provided by the user.
             do_denoise (bool): If True, applies denoising settings.
+        """
+        ...
+
+    @abstractmethod
+    def supported_settings(self, do_denoise: bool) -> set[str]:
+        """
+        Return all model, evaluation, and compatibility setting names.
         """
         ...
     

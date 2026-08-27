@@ -50,7 +50,10 @@ EVAL_SETS = {
 @dataclass
 class BackendV4(Backend):
 
-    def _configure_model(self, user_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
+    def supported_settings(self, do_denoise: bool) -> set[str]:
+        return set(MOD_SETS) | set(EVAL_SETS) | {"channels", "model_type"}
+
+    def configure_model(self, user_settings: dict[str, Any], do_denoise: bool) -> dict[str, Any]:
         
         if do_denoise:
             logger.info("Denoise is unnecessary for cellpose v4. This parameter will be ignored.")
@@ -93,7 +96,7 @@ class BackendV4(Backend):
 
     def init_model(self, user_settings: dict[str, Any], do_denoise: bool) -> CellposeModel:
         
-        mod_sets = self._configure_model(user_settings, do_denoise)
+        mod_sets = self.configure_model(user_settings, do_denoise)
 
         logger_setup()
         return CellposeModel(**mod_sets)
