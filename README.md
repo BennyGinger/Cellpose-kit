@@ -1,6 +1,15 @@
 # Cellpose Kit
 
-A clean, unified API wrapper for Cellpose v3 and v4 that provides version-transparent cell segmentation with consistent interfaces.
+A clean, unified API wrapper for Cellpose v3 and v4 that provides
+version-transparent cell segmentation with consistent interfaces. It isolates
+version-specific model construction, channel conventions, denoising options,
+and inference details behind one setup-once, run-many façade, so callers do not
+need parallel implementations for each Cellpose generation.
+
+Within FITS, `cellpose-kit` is the numerical segmentation adapter: FITS loads
+and selects image channels, while this package configures Cellpose and returns
+label arrays. The package does not manage experiment paths, pipeline state, or
+output artifacts.
 
 ## Features
 
